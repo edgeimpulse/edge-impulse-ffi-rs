@@ -1,0 +1,2 @@
+# Clean up generated model metadata
+src/model_metadata.rs

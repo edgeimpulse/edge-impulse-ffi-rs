@@ -1,0 +1,7 @@
+/target
+/model/*
+!/model/README.md
+# Prevent git from tracking subdirectories in /model
+/model/**/
+# Ignore generated model metadata
+/src/model_metadata.rs
