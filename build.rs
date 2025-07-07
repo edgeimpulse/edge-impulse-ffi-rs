@@ -229,6 +229,16 @@ fn main() {
         .write_to_file("src/bindings.rs")
         .expect("Couldn't write bindings!");
 
+    // Add allow attributes to suppress warnings in generated bindings
+    let bindings_content = std::fs::read_to_string("src/bindings.rs")
+        .expect("Failed to read generated bindings");
+    let modified_content = format!(
+        "#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]\n{}",
+        bindings_content
+    );
+    std::fs::write("src/bindings.rs", modified_content)
+        .expect("Failed to write modified bindings");
+
     // Create build directory if it doesn't exist
     std::fs::create_dir_all(&build_dir).expect("Failed to create build directory");
 
