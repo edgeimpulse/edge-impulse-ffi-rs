@@ -37,7 +37,7 @@ target_include_directories(edge-impulse-sdk PUBLIC
 
 # Set C++ standard
 set_target_properties(edge-impulse-sdk PROPERTIES
-    CXX_STANDARD 11
+    CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
 )
 
