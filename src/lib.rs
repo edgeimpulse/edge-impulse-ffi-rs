@@ -10,7 +10,6 @@ use std::error::Error;
 use std::fmt;
 use std::ptr;
 
-
 impl fmt::Display for ClassificationResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {:.4}", self.label, self.value)
@@ -66,31 +65,43 @@ impl From<EI_IMPULSE_ERROR> for EdgeImpulseError {
     fn from(error: EI_IMPULSE_ERROR) -> Self {
         match error {
             EI_IMPULSE_ERROR::EI_IMPULSE_OK => EdgeImpulseError::Ok,
-            EI_IMPULSE_ERROR::EI_IMPULSE_ERROR_SHAPES_DONT_MATCH => EdgeImpulseError::ShapesDontMatch,
+            EI_IMPULSE_ERROR::EI_IMPULSE_ERROR_SHAPES_DONT_MATCH => {
+                EdgeImpulseError::ShapesDontMatch
+            }
             EI_IMPULSE_ERROR::EI_IMPULSE_CANCELED => EdgeImpulseError::Canceled,
             EI_IMPULSE_ERROR::EI_IMPULSE_ALLOC_FAILED => EdgeImpulseError::MemoryAllocationFailed,
             EI_IMPULSE_ERROR::EI_IMPULSE_OUT_OF_MEMORY => EdgeImpulseError::OutOfMemory,
-            EI_IMPULSE_ERROR::EI_IMPULSE_INPUT_TENSOR_WAS_NULL => EdgeImpulseError::InputTensorWasNull,
-            EI_IMPULSE_ERROR::EI_IMPULSE_OUTPUT_TENSOR_WAS_NULL => EdgeImpulseError::OutputTensorWasNull,
+            EI_IMPULSE_ERROR::EI_IMPULSE_INPUT_TENSOR_WAS_NULL => {
+                EdgeImpulseError::InputTensorWasNull
+            }
+            EI_IMPULSE_ERROR::EI_IMPULSE_OUTPUT_TENSOR_WAS_NULL => {
+                EdgeImpulseError::OutputTensorWasNull
+            }
             EI_IMPULSE_ERROR::EI_IMPULSE_TFLITE_ERROR => EdgeImpulseError::TfliteError,
-            EI_IMPULSE_ERROR::EI_IMPULSE_TFLITE_ARENA_ALLOC_FAILED => EdgeImpulseError::TfliteArenaAllocFailed,
+            EI_IMPULSE_ERROR::EI_IMPULSE_TFLITE_ARENA_ALLOC_FAILED => {
+                EdgeImpulseError::TfliteArenaAllocFailed
+            }
             EI_IMPULSE_ERROR::EI_IMPULSE_DSP_ERROR => EdgeImpulseError::ReadSensor,
             EI_IMPULSE_ERROR::EI_IMPULSE_INVALID_SIZE => EdgeImpulseError::MinSizeRatio,
-            EI_IMPULSE_ERROR::EI_IMPULSE_ONLY_SUPPORTED_FOR_IMAGES => EdgeImpulseError::OnlySupportImages,
-            EI_IMPULSE_ERROR::EI_IMPULSE_UNSUPPORTED_INFERENCING_ENGINE => EdgeImpulseError::UnsupportedInferencingEngine,
+            EI_IMPULSE_ERROR::EI_IMPULSE_ONLY_SUPPORTED_FOR_IMAGES => {
+                EdgeImpulseError::OnlySupportImages
+            }
+            EI_IMPULSE_ERROR::EI_IMPULSE_UNSUPPORTED_INFERENCING_ENGINE => {
+                EdgeImpulseError::UnsupportedInferencingEngine
+            }
             EI_IMPULSE_ERROR::EI_IMPULSE_INFERENCE_ERROR => EdgeImpulseError::NoValidImpulse,
             _ => EdgeImpulseError::Other,
         }
     }
 }
 
-
-
 impl fmt::Display for EdgeImpulseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EdgeImpulseError::Ok => write!(f, "Operation completed successfully"),
-            EdgeImpulseError::ShapesDontMatch => write!(f, "Input shapes don't match expected dimensions"),
+            EdgeImpulseError::ShapesDontMatch => {
+                write!(f, "Input shapes don't match expected dimensions")
+            }
             EdgeImpulseError::Canceled => write!(f, "Operation was canceled"),
             EdgeImpulseError::MemoryAllocationFailed => write!(f, "Memory allocation failed"),
             EdgeImpulseError::OutOfMemory => write!(f, "Out of memory"),
@@ -98,15 +109,21 @@ impl fmt::Display for EdgeImpulseError {
             EdgeImpulseError::OutputTensorWasNull => write!(f, "Output tensor was null"),
             EdgeImpulseError::AllocatedTensorWasNull => write!(f, "Allocated tensor was null"),
             EdgeImpulseError::TfliteError => write!(f, "TensorFlow Lite error"),
-            EdgeImpulseError::TfliteArenaAllocFailed => write!(f, "TensorFlow Lite arena allocation failed"),
+            EdgeImpulseError::TfliteArenaAllocFailed => {
+                write!(f, "TensorFlow Lite arena allocation failed")
+            }
             EdgeImpulseError::ReadSensor => write!(f, "Error reading sensor data"),
             EdgeImpulseError::MinSizeRatio => write!(f, "Minimum size ratio not met"),
             EdgeImpulseError::MaxSizeRatio => write!(f, "Maximum size ratio exceeded"),
             EdgeImpulseError::OnlySupportImages => write!(f, "Only image input is supported"),
             EdgeImpulseError::ModelInputTensorWasNull => write!(f, "Model input tensor was null"),
             EdgeImpulseError::ModelOutputTensorWasNull => write!(f, "Model output tensor was null"),
-            EdgeImpulseError::UnsupportedInferencingEngine => write!(f, "Unsupported inferencing engine"),
-            EdgeImpulseError::AllocWhileCacheLocked => write!(f, "Allocation attempted while cache is locked"),
+            EdgeImpulseError::UnsupportedInferencingEngine => {
+                write!(f, "Unsupported inferencing engine")
+            }
+            EdgeImpulseError::AllocWhileCacheLocked => {
+                write!(f, "Allocation attempted while cache is locked")
+            }
             EdgeImpulseError::NoValidImpulse => write!(f, "No valid impulse found"),
             EdgeImpulseError::Other => write!(f, "Unknown error occurred"),
         }
@@ -124,7 +141,7 @@ pub struct EdgeImpulseHandle {
 }
 
 impl EdgeImpulseHandle {
-        /// Create a new Edge Impulse handle
+    /// Create a new Edge Impulse handle
     pub fn new() -> EdgeImpulseResult<Self> {
         let handle = ptr::null_mut();
         let result = unsafe { ei_ffi_init_impulse(handle) };
@@ -156,9 +173,8 @@ impl Signal {
             total_length: 0,
         });
 
-        let result = unsafe {
-            ei_ffi_signal_from_buffer(data.as_ptr(), data.len(), &mut *c_signal)
-        };
+        let result =
+            unsafe { ei_ffi_signal_from_buffer(data.as_ptr(), data.len(), &mut *c_signal) };
 
         if result == bindings::EI_IMPULSE_ERROR::EI_IMPULSE_OK {
             Ok(Self { c_signal })
@@ -181,7 +197,8 @@ impl InferenceResult {
     /// Create a new inference result
     pub fn new() -> Self {
         let result = unsafe {
-            let ptr = std::alloc::alloc_zeroed(std::alloc::Layout::new::<ei_impulse_result_t>()) as *mut ei_impulse_result_t;
+            let ptr = std::alloc::alloc_zeroed(std::alloc::Layout::new::<ei_impulse_result_t>())
+                as *mut ei_impulse_result_t;
             ptr
         };
         Self { result }
@@ -200,15 +217,22 @@ impl InferenceResult {
     pub fn classifications(&self, label_count: usize) -> Vec<ClassificationResult> {
         unsafe {
             let result = &*self.result;
-            (0..label_count).map(|i| {
-                let c = result.classification[i];
-                let label = if !c.label.is_null() {
-                    std::ffi::CStr::from_ptr(c.label).to_string_lossy().into_owned()
-                } else {
-                    String::new()
-                };
-                ClassificationResult { label, value: c.value }
-            }).collect()
+            (0..label_count)
+                .map(|i| {
+                    let c = result.classification[i];
+                    let label = if !c.label.is_null() {
+                        std::ffi::CStr::from_ptr(c.label)
+                            .to_string_lossy()
+                            .into_owned()
+                    } else {
+                        String::new()
+                    };
+                    ClassificationResult {
+                        label,
+                        value: c.value,
+                    }
+                })
+                .collect()
         }
     }
 
@@ -219,23 +243,32 @@ impl InferenceResult {
             if result.bounding_boxes_count == 0 || result.bounding_boxes.is_null() {
                 return vec![];
             }
-            let bbs = std::slice::from_raw_parts(result.bounding_boxes, result.bounding_boxes_count as usize);
-            bbs.iter().filter_map(|bb| {
-                if bb.value == 0.0 { return None; }
-                let label = if !bb.label.is_null() {
-                    std::ffi::CStr::from_ptr(bb.label).to_string_lossy().into_owned()
-                } else {
-                    String::new()
-                };
-                Some(BoundingBox {
-                    label,
-                    value: bb.value,
-                    x: bb.x,
-                    y: bb.y,
-                    width: bb.width,
-                    height: bb.height,
+            let bbs = std::slice::from_raw_parts(
+                result.bounding_boxes,
+                result.bounding_boxes_count as usize,
+            );
+            bbs.iter()
+                .filter_map(|bb| {
+                    if bb.value == 0.0 {
+                        return None;
+                    }
+                    let label = if !bb.label.is_null() {
+                        std::ffi::CStr::from_ptr(bb.label)
+                            .to_string_lossy()
+                            .into_owned()
+                    } else {
+                        String::new()
+                    };
+                    Some(BoundingBox {
+                        label,
+                        value: bb.value,
+                        x: bb.x,
+                        y: bb.y,
+                        width: bb.width,
+                        height: bb.height,
+                    })
                 })
-            }).collect()
+                .collect()
         }
     }
 
@@ -274,12 +307,10 @@ pub struct EdgeImpulseClassifier {
 impl EdgeImpulseClassifier {
     /// Create a new Edge Impulse classifier
     pub fn new() -> Self {
-        Self {
-            initialized: false,
-        }
+        Self { initialized: false }
     }
 
-        /// Initialize the classifier
+    /// Initialize the classifier
     pub fn init(&mut self) -> EdgeImpulseResult<()> {
         unsafe {
             ei_ffi_run_classifier_init();
@@ -311,11 +342,7 @@ impl EdgeImpulseClassifier {
 
         let result = InferenceResult::new();
         let result_code = unsafe {
-            ei_ffi_run_classifier(
-                signal.as_ptr(),
-                result.result,
-                if debug { 1 } else { 0 },
-            )
+            ei_ffi_run_classifier(signal.as_ptr(), result.result, if debug { 1 } else { 0 })
         };
 
         if result_code == bindings::EI_IMPULSE_ERROR::EI_IMPULSE_OK {
@@ -353,8 +380,6 @@ impl EdgeImpulseClassifier {
         }
         Ok(result)
     }
-
-
 
     /// Run inference on pre-processed features
     pub fn run_inference(
@@ -446,10 +471,18 @@ pub struct TimingResult {
 impl fmt::Display for ModelMetadataInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Model Metadata:")?;
-        writeln!(f, "  Project: {} (ID: {})", self.project_name, self.project_id)?;
+        writeln!(
+            f,
+            "  Project: {} (ID: {})",
+            self.project_name, self.project_id
+        )?;
         writeln!(f, "  Owner: {}", self.project_owner)?;
         writeln!(f, "  Deploy version: {}", self.deploy_version)?;
-        writeln!(f, "  Input: {}x{} frames: {}", self.input_width, self.input_height, self.input_frames)?;
+        writeln!(
+            f,
+            "  Input: {}x{} frames: {}",
+            self.input_width, self.input_height, self.input_frames
+        )?;
         writeln!(f, "  Label count: {}", self.label_count)?;
         writeln!(f, "  Sensor: {}", self.sensor)?;
         writeln!(f, "  Inferencing engine: {}", self.inferencing_engine)?;
