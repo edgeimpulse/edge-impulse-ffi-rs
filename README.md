@@ -24,6 +24,19 @@ cargo run --example image_infer -- --image <path_to_image>
 - The build process is fully automated via `build.rs`.
 - You can swap in a new Edge Impulse model by replacing the contents of `model/` and rebuilding.
 
+## Cleaning the Model Folder
+
+To clean the `model/` folder and remove all generated files (keeping only `README.md` and `.gitignore`):
+
+```sh
+CLEAN_MODEL=1 cargo build
+```
+
+This is useful when you want to:
+- Remove build artifacts and generated files
+- Prepare the folder for a new model
+- Clean up after development/testing
+
 ## FFI Glue Code
 - The `ffi_glue/` folder contains C/C++ wrappers and CMake logic to expose the Edge Impulse C++ API to Rust.
 - These files are copied into `model/` at build time so you never lose your FFI logic when updating the model.

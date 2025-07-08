@@ -1,8 +1,63 @@
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
+use std::fs;
 
 mod build_helpers;
+
+fn clean_model_folder() {
+    let model_dir = "model";
+
+    // Check if model directory exists
+    if !fs::metadata(model_dir).is_ok() {
+        println!("Model directory does not exist, nothing to clean");
+        return;
+    }
+
+    // Read all entries in the model directory
+    let entries = match fs::read_dir(model_dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            eprintln!("Failed to read model directory: {}", e);
+            return;
+        }
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                eprintln!("Failed to read directory entry: {}", e);
+                continue;
+            }
+        };
+
+        let path = entry.path();
+                let file_name = path.file_name().unwrap_or_default();
+
+        // Skip README.md and .gitignore
+        if file_name == "README.md" || file_name == ".gitignore" {
+            continue;
+        }
+
+        // Remove the entry (file or directory)
+        if path.is_dir() {
+            if let Err(e) = fs::remove_dir_all(&path) {
+                eprintln!("Failed to remove directory {:?}: {}", path, e);
+            } else {
+                println!("Removed directory: {:?}", path);
+            }
+        } else {
+            if let Err(e) = fs::remove_file(&path) {
+                eprintln!("Failed to remove file {:?}: {}", path, e);
+            } else {
+                println!("Removed file: {:?}", path);
+            }
+        }
+    }
+
+    println!("Model folder cleaned successfully. Only README.md and .gitignore remain.");
+}
 
 fn extract_and_write_model_metadata() {
     use std::collections::HashMap;
@@ -176,6 +231,12 @@ fn extract_and_write_model_metadata() {
 }
 
 fn main() {
+    // Check if we should clean the model folder
+    if env::var("CLEAN_MODEL").is_ok() {
+        clean_model_folder();
+        return;
+    }
+
     // Use 'model' as the only model folder
     let model_dir = "model";
     build_helpers::copy_ffi_glue(model_dir);
@@ -189,7 +250,7 @@ fn main() {
         .header(&format!("{}/edge_impulse_wrapper.h", model_dir))
         // Use C++ mode and the correct standard
         .clang_arg("-xc++")
-        .clang_arg("-std=c++14")
+        .clang_arg("-std=c++17")
         // Add include paths for the SDK
         .clang_arg(&format!("-I{}", model_dir))
         .clang_arg(&format!("-I{}/edge-impulse-sdk", model_dir))
