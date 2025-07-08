@@ -80,7 +80,7 @@ Full TensorFlow Lite uses prebuilt binaries from the `tflite/` directory:
 
 ## Advanced Build Flags
 
-This project supports a wide range of advanced build flags for hardware accelerators, backends, and cross-compilation, mirroring the Makefile from Edge Impulse's example-standalone-inferencing-linux. You can combine these flags as needed:
+This project supports a wide range of advanced build flags for hardware accelerators, backends, and cross-compilation, mirroring the Makefile from Edge Impulse's [example-standalone-inferencing-linux](https://github.com/edgeimpulse/example-standalone-inferencing-linux). You can combine these flags as needed:
 
 | Flag                          | Purpose / Effect                                                                                 |
 |-------------------------------|-----------------------------------------------------------------------------------------------|
@@ -122,7 +122,7 @@ LINK_TFLITE_FLEX_LIBRARY=1 USE_FULL_TFLITE=1 cargo build
 TARGET_JETSON_NANO=1 TENSORRT_VERSION=8.5.2 USE_FULL_TFLITE=1 cargo build
 ```
 
-See the Makefile in Edge Impulse's example-standalone-inferencing-linux for more details on what each flag does. Not all combinations are valid for all models/platforms.
+See the Makefile in Edge Impulse's [example-standalone-inferencing-linux](https://github.com/edgeimpulse/example-standalone-inferencing-linux) for more details on what each flag does. Not all combinations are valid for all models/platforms.
 
 ---
 
