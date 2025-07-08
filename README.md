@@ -166,12 +166,13 @@ This is useful when you want to:
 - Model constants (input size, label count, etc.) are extracted from the model's generated headers and made available in Rust for ergonomic use.
 - The `build.rs` script automates:
   - Copying FFI glue code from `ffi_glue/` to `model/`.
-  - Building the C++ static library (`libedge-impulse-sdk.a`) in `model/` using CMake.
+  - Detecting and processing build flags (platform targets, TensorFlow Lite mode, hardware accelerators, etc.).
+  - Building the C++ static library (`libedge-impulse-sdk.a`) in `model/` using CMake with appropriate flags.
   - Generating Rust FFI bindings for the C++ API headers with `bindgen` (output to `src/bindings.rs`).
   - Extracting model metadata from `model_metadata.h` and writing Rust constants to `src/model_metadata.rs`.
   - Printing build progress and diagnostics to help debug integration issues.
 
-This ensures the Rust code always has up-to-date bindings and metadata for the current model, and that the C++ code is rebuilt as needed.
+This ensures the Rust code always has up-to-date bindings and metadata for the current model, and that the C++ code is rebuilt as needed with the correct configuration for your target platform and hardware.
 
 ## Example: Image Inference
 
