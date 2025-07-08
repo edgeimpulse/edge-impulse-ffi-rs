@@ -351,13 +351,129 @@ fn main() {
     // Create build directory if it doesn't exist
     std::fs::create_dir_all(&build_dir).expect("Failed to create build directory");
 
+            // Check if we need full TensorFlow Lite
+    // Only USE_FULL_TFLITE is supported
+    let use_full_tflite = env::var("USE_FULL_TFLITE").is_ok();
+
+    // Detect platform target
+    let target_platform = if env::var("TARGET_MAC_ARM64").is_ok() {
+        "mac-arm64"
+    } else if env::var("TARGET_MAC_X86_64").is_ok() {
+        "mac-x86_64"
+    } else if env::var("TARGET_LINUX_X86").is_ok() {
+        "linux-x86"
+    } else if env::var("TARGET_LINUX_AARCH64").is_ok() {
+        "linux-aarch64"
+    } else if env::var("TARGET_LINUX_ARMV7").is_ok() {
+        "linux-armv7"
+    } else if env::var("TARGET_JETSON_NANO").is_ok() {
+        "linux-jetson-nano"
+    } else if env::var("TARGET_JETSON_ORIN").is_ok() {
+        "linux-aarch64" // Jetson Orin uses aarch64
+    } else if env::var("TARGET_RENESAS_RZV2L").is_ok() {
+        "linux-aarch64" // Renesas RZ/V2L uses aarch64
+    } else if env::var("TARGET_RENESAS_RZG2L").is_ok() {
+        "linux-aarch64" // Renesas RZ/G2L uses aarch64
+    } else if env::var("TARGET_AM68PA").is_ok() || env::var("TARGET_AM62A").is_ok() || env::var("TARGET_AM68A").is_ok() || env::var("TARGET_TDA4VM").is_ok() {
+        "linux-aarch64" // TI TDA4VM variants use aarch64
+    } else {
+        // Auto-detect based on current system
+        if cfg!(target_os = "macos") {
+            if cfg!(target_arch = "aarch64") {
+                "mac-arm64"
+            } else {
+                "mac-x86_64"
+            }
+        } else if cfg!(target_os = "linux") {
+            if cfg!(target_arch = "aarch64") {
+                "linux-aarch64"
+            } else if cfg!(target_arch = "arm") {
+                "linux-armv7"
+            } else {
+                "linux-x86"
+            }
+        } else {
+            "linux-x86" // default fallback
+        }
+    };
+
+    // Detect additional backend/accelerator support
+    let use_tvm = env::var("USE_TVM").is_ok();
+    let use_onnx = env::var("USE_ONNX").is_ok();
+    let use_qualcomm_qnn = env::var("USE_QUALCOMM_QNN").is_ok();
+    let use_ethos = env::var("USE_ETHOS").is_ok();
+    let use_akida = env::var("USE_AKIDA").is_ok();
+    let use_memryx = env::var("USE_MEMRYX").is_ok();
+    let link_tflite_flex = env::var("LINK_TFLITE_FLEX_LIBRARY").is_ok();
+    let use_memryx_software = env::var("EI_CLASSIFIER_USE_MEMRYX_SOFTWARE").is_ok();
+
+    // Get TensorRT version for Jetson builds
+    let tensorrt_version = env::var("TENSORRT_VERSION").unwrap_or_else(|_| "8.5.2".to_string());
+
+    // Get Python cross path for cross-compilation
+    let python_cross_path = env::var("PYTHON_CROSS_PATH").ok();
+
     // Configure CMake with the required macros for C linkage
+    let mut cmake_args = vec![
+        "..".to_string(),
+        "-DCMAKE_BUILD_TYPE=Release".to_string(),
+        "-DEIDSP_SIGNAL_C_FN_POINTER=1".to_string(),
+        "-DEI_C_LINKAGE=1".to_string(),
+        "-DBUILD_SHARED_LIBS=OFF".to_string(), // Build static library
+    ];
+
+    if use_full_tflite {
+        cmake_args.push("-DEI_CLASSIFIER_USE_FULL_TFLITE=1".to_string());
+        cmake_args.push(format!("-DTARGET_PLATFORM={}", target_platform));
+        println!("cargo:warning=Building with full TensorFlow Lite for platform: {}", target_platform);
+    } else {
+        println!("cargo:warning=Building with TensorFlow Lite Micro");
+    }
+
+    // Pass additional backend/accelerator flags
+    if use_tvm {
+        cmake_args.push("-DUSE_TVM=1".to_string());
+        println!("cargo:warning=Building with Apache TVM support");
+    }
+    if use_onnx {
+        cmake_args.push("-DUSE_ONNX=1".to_string());
+        println!("cargo:warning=Building with ONNX Runtime support");
+    }
+    if use_qualcomm_qnn {
+        cmake_args.push("-DUSE_QUALCOMM_QNN=1".to_string());
+        println!("cargo:warning=Building with Qualcomm QNN support");
+    }
+    if use_ethos {
+        cmake_args.push("-DUSE_ETHOS=1".to_string());
+        println!("cargo:warning=Building with ARM Ethos support");
+    }
+    if use_akida {
+        cmake_args.push("-DUSE_AKIDA=1".to_string());
+        println!("cargo:warning=Building with BrainChip Akida support");
+    }
+    if use_memryx {
+        cmake_args.push("-DUSE_MEMRYX=1".to_string());
+        println!("cargo:warning=Building with MemryX support");
+    }
+    if link_tflite_flex {
+        cmake_args.push("-DLINK_TFLITE_FLEX_LIBRARY=1".to_string());
+        println!("cargo:warning=Linking TensorFlow Lite Flex library");
+    }
+    if use_memryx_software {
+        cmake_args.push("-DEI_CLASSIFIER_USE_MEMRYX_SOFTWARE=1".to_string());
+        println!("cargo:warning=Using MemryX software mode");
+    }
+
+    // Pass TensorRT version for Jetson builds
+    cmake_args.push(format!("-DTENSORRT_VERSION={}", tensorrt_version));
+
+    // Pass Python cross path if specified
+    if let Some(ref path) = python_cross_path {
+        cmake_args.push(format!("-DPYTHON_CROSS_PATH={}", path));
+    }
+
     let cmake_status = Command::new("cmake")
-        .arg("..")
-        .arg("-DCMAKE_BUILD_TYPE=Release")
-        .arg("-DEIDSP_SIGNAL_C_FN_POINTER=1")
-        .arg("-DEI_C_LINKAGE=1")
-        .arg("-DBUILD_SHARED_LIBS=OFF") // Build static library
+        .args(&cmake_args)
         .current_dir(&build_dir)
         .status()
         .expect("Failed to run cmake configure");
