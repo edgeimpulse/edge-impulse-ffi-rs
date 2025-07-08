@@ -4,11 +4,18 @@
 //! allowing you to run inference on trained models from Rust applications.
 
 pub mod bindings;
+pub mod runner_api;
 
 use bindings::*;
 use std::error::Error;
 use std::fmt;
 use std::ptr;
+
+// Re-export runner API types for compatibility with edge-impulse-runner-rs
+pub use runner_api::EimModel;
+pub use runner_api::inference::messages::{InferenceResponse as RunnerInferenceResponse, InferenceResult as RunnerInferenceResult};
+pub use runner_api::types::{BoundingBox as RunnerBoundingBox, ModelParameters, ProjectInfo, SensorType, TimingInfo};
+pub use runner_api::EimError;
 
 impl fmt::Display for ClassificationResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

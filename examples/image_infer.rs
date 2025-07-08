@@ -1,11 +1,15 @@
-//! Image Classification Example using Edge Impulse FFI
+//! Image Classification Example using Edge Impulse FFI Runner API
+//!
+//! This example demonstrates how to use the Edge Impulse FFI bindings with
+//! the runner API compatibility layer, providing the same interface as
+//! edge-impulse-runner-rs but using direct FFI calls instead of socket communication.
 //!
 //! Usage:
 //!   cargo run --example image_infer -- --image <path_to_image> [--debug]
 
 use clap::Parser;
 use edge_impulse_ffi_rs::model_metadata;
-use edge_impulse_ffi_rs::{EdgeImpulseClassifier, ModelMetadata, Signal};
+use edge_impulse_ffi_rs::runner_api::{EimModel, InferenceResult};
 use image::{self, GenericImageView};
 use image::{imageops::FilterType, DynamicImage, RgbImage};
 use std::error::Error;
@@ -92,19 +96,33 @@ fn resize_and_crop(
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
-    // Get and print all model metadata at once
-    let meta = ModelMetadata::get();
-    println!("{}", meta);
+    println!("Edge Impulse FFI Runner API - Image Classification Example");
+    println!("=========================================================");
+
+    // Create a new model instance using the runner API
+    let mut model = EimModel::new()?;
+    println!("✓ Model initialized successfully");
+
+    // Get model parameters
+    let params = model.parameters()?;
+    println!("✓ Model parameters:");
+    println!("  - Input size: {}x{}", params.image_input_width, params.image_input_height);
+    println!("  - Input features: {}", params.input_features_count);
+    println!("  - Labels: {}", params.label_count);
+    println!("  - Sensor type: {:?}", model.sensor_type()?);
+    println!("  - Model type: {}", params.model_type);
+    println!("  - Has anomaly detection: {:?}", params.has_anomaly);
+    println!("  - Has object detection: {}", !params.model_type.is_empty() && params.model_type.contains("object"));
 
     // Load and process the image
     let img = image::open(&args.image)?;
     let (width, height) = img.dimensions();
-    println!("Loaded image: {} ({}x{})", args.image, width, height);
+    println!("✓ Loaded image: {} ({}x{})", args.image, width, height);
 
     // Resize and crop using model metadata
-    let (iw, ih) = (meta.input_width as u32, meta.input_height as u32);
+    let (iw, ih) = (params.image_input_width, params.image_input_height);
     let rgb = resize_and_crop(&img, iw, ih, model_metadata::EI_CLASSIFIER_RESIZE_MODE);
-    println!("Processed image to {}x{} RGB", iw, ih);
+    println!("✓ Processed image to {}x{} RGB", iw, ih);
 
     // Pack each pixel as (r << 16) + (g << 8) + b, as f32
     let mut features = Vec::with_capacity((iw * ih) as usize);
@@ -113,15 +131,24 @@ fn main() -> Result<(), Box<dyn Error>> {
         let packed = ((r as u32) << 16) + ((g as u32) << 8) + (b as u32);
         features.push(packed as f32);
     }
-    if features.len() != meta.input_width * meta.input_height {
+
+    // For Edge Impulse image models, we expect one packed RGB value per pixel
+    // The model metadata input_features_count is calculated as width * height * channels,
+    // but the SDK expects packed RGB values (one feature per pixel)
+    let expected_pixels = (params.image_input_width * params.image_input_height * params.image_input_frames) as usize;
+    if features.len() != expected_pixels {
         eprintln!(
-            "Warning: feature count is {} but expected {} ({}x{})",
+            "Warning: feature count is {} but expected {} pixels ({}x{}x{})",
             features.len(),
-            meta.input_width * meta.input_height,
-            meta.input_width,
-            meta.input_height
+            expected_pixels,
+            params.image_input_width,
+            params.image_input_height,
+            params.image_input_frames
         );
+    } else {
+        println!("✓ Feature extraction: {} packed RGB pixels", features.len());
     }
+
     if args.debug {
         let min = features.iter().fold(f32::INFINITY, |a, &b| a.min(b));
         let max = features.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
@@ -129,62 +156,83 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mean = sum / features.len() as f32;
         println!(
             "Feature statistics: min={:.3}, max={:.3}, mean={:.3}, count={}",
-            min,
-            max,
-            mean,
-            features.len()
+            min, max, mean, features.len()
         );
     }
 
-    // Create a signal from the features
-    let signal = Signal::from_raw_data(&features)?;
-
-    // Initialize the classifier
-    let mut classifier = EdgeImpulseClassifier::new();
-    classifier.init()?;
-
-    // Run inference with the real signal
-    let result = classifier.run_classifier(&signal, args.debug);
+    // Run inference using the runner API
+    println!("Running inference...");
+    let result = model.infer(features, Some(args.debug));
 
     match result {
-        Ok(inference) => {
-            println!("Inference ran successfully!");
-            // Print classification results if present
-            if !meta.has_object_detection && meta.label_count > 0 {
-                let results = inference.classifications(meta.label_count);
-                if results.is_empty() {
-                    println!("No classification results.");
-                } else {
+        Ok(inference_response) => {
+            println!("✓ Inference completed successfully!");
+
+            // Process results based on the inference type
+            match inference_response.result {
+                InferenceResult::Classification { classification } => {
                     println!("Classification results:");
-                    for c in results {
-                        println!("  {}", c);
+                    for (class, probability) in classification {
+                        println!("  - {}: {:.2}%", class, probability * 100.0);
                     }
                 }
-            }
-            // Print bounding boxes for object detection
-            if meta.has_object_detection {
-                let bbs = inference.bounding_boxes();
-                if bbs.is_empty() {
-                    println!("No bounding boxes found.");
-                } else {
+                InferenceResult::ObjectDetection {
+                    bounding_boxes,
+                    classification,
+                } => {
+                    if !classification.is_empty() {
+                        println!("Image classification:");
+                        for (class, probability) in classification {
+                            println!("  - {}: {:.2}%", class, probability * 100.0);
+                        }
+                    }
                     println!("Object detection results:");
-                    for bb in bbs {
-                        println!("  {}", bb);
+                    if bounding_boxes.is_empty() {
+                        println!("  No objects detected.");
+                    } else {
+                        for bbox in bounding_boxes {
+                            println!(
+                                "  - {} ({:.2}%) at ({},{},{},{})",
+                                bbox.label,
+                                bbox.value * 100.0,
+                                bbox.x,
+                                bbox.y,
+                                bbox.width,
+                                bbox.height
+                            );
+                        }
+                    }
+                }
+                InferenceResult::VisualAnomaly {
+                    visual_anomaly_grid,
+                    visual_anomaly_max,
+                    visual_anomaly_mean,
+                    anomaly,
+                } => {
+                    println!("Visual anomaly detection results:");
+                    println!("  - Overall anomaly: {:.2}%", anomaly * 100.0);
+                    println!("  - Maximum anomaly: {:.2}%", visual_anomaly_max * 100.0);
+                    println!("  - Mean anomaly: {:.2}%", visual_anomaly_mean * 100.0);
+
+                    if !visual_anomaly_grid.is_empty() {
+                        println!("  Anomaly regions:");
+                        for bbox in visual_anomaly_grid {
+                            println!(
+                                "    - {} ({:.2}%) at ({},{},{},{})",
+                                bbox.label,
+                                bbox.value * 100.0,
+                                bbox.x,
+                                bbox.y,
+                                bbox.width,
+                                bbox.height
+                            );
+                        }
                     }
                 }
             }
-            // Print timing info
-            let timing = inference.timing();
-            println!("{}", timing);
         }
         Err(e) => {
-            // Print both the error and its integer value
-            let code = e as i32;
-            eprintln!(
-                "Error running inference: {} (error code: {:?}, value: {})",
-                e, e, code
-            );
-            println!("Raw error code from C++: {}", code);
+            eprintln!("✗ Error running inference: {}", e);
             println!("This might be expected if:");
             println!("1. No model is loaded/initialized");
             println!("2. The signal format doesn't match what the model expects");
@@ -192,6 +240,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    classifier.deinit()?;
+    println!("✓ Example completed successfully!");
     Ok(())
 }
