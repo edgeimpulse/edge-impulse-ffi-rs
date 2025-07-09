@@ -6,9 +6,10 @@
 pub mod bindings;
 
 use bindings::*;
+
 use std::error::Error;
 use std::fmt;
-use std::ptr;
+
 
 impl fmt::Display for ClassificationResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -61,35 +62,35 @@ pub enum EdgeImpulseError {
     Other,
 }
 
-impl From<EI_IMPULSE_ERROR> for EdgeImpulseError {
-    fn from(error: EI_IMPULSE_ERROR) -> Self {
+impl From<bindings::EI_IMPULSE_ERROR> for EdgeImpulseError {
+    fn from(error: bindings::EI_IMPULSE_ERROR) -> Self {
         match error {
-            EI_IMPULSE_ERROR::EI_IMPULSE_OK => EdgeImpulseError::Ok,
-            EI_IMPULSE_ERROR::EI_IMPULSE_ERROR_SHAPES_DONT_MATCH => {
+            bindings::EI_IMPULSE_ERROR::EI_IMPULSE_OK => EdgeImpulseError::Ok,
+            bindings::EI_IMPULSE_ERROR::EI_IMPULSE_ERROR_SHAPES_DONT_MATCH => {
                 EdgeImpulseError::ShapesDontMatch
             }
-            EI_IMPULSE_ERROR::EI_IMPULSE_CANCELED => EdgeImpulseError::Canceled,
-            EI_IMPULSE_ERROR::EI_IMPULSE_ALLOC_FAILED => EdgeImpulseError::MemoryAllocationFailed,
-            EI_IMPULSE_ERROR::EI_IMPULSE_OUT_OF_MEMORY => EdgeImpulseError::OutOfMemory,
-            EI_IMPULSE_ERROR::EI_IMPULSE_INPUT_TENSOR_WAS_NULL => {
+            bindings::EI_IMPULSE_ERROR::EI_IMPULSE_CANCELED => EdgeImpulseError::Canceled,
+            bindings::EI_IMPULSE_ERROR::EI_IMPULSE_ALLOC_FAILED => EdgeImpulseError::MemoryAllocationFailed,
+            bindings::EI_IMPULSE_ERROR::EI_IMPULSE_OUT_OF_MEMORY => EdgeImpulseError::OutOfMemory,
+            bindings::EI_IMPULSE_ERROR::EI_IMPULSE_INPUT_TENSOR_WAS_NULL => {
                 EdgeImpulseError::InputTensorWasNull
             }
-            EI_IMPULSE_ERROR::EI_IMPULSE_OUTPUT_TENSOR_WAS_NULL => {
+            bindings::EI_IMPULSE_ERROR::EI_IMPULSE_OUTPUT_TENSOR_WAS_NULL => {
                 EdgeImpulseError::OutputTensorWasNull
             }
-            EI_IMPULSE_ERROR::EI_IMPULSE_TFLITE_ERROR => EdgeImpulseError::TfliteError,
-            EI_IMPULSE_ERROR::EI_IMPULSE_TFLITE_ARENA_ALLOC_FAILED => {
+            bindings::EI_IMPULSE_ERROR::EI_IMPULSE_TFLITE_ERROR => EdgeImpulseError::TfliteError,
+            bindings::EI_IMPULSE_ERROR::EI_IMPULSE_TFLITE_ARENA_ALLOC_FAILED => {
                 EdgeImpulseError::TfliteArenaAllocFailed
             }
-            EI_IMPULSE_ERROR::EI_IMPULSE_DSP_ERROR => EdgeImpulseError::ReadSensor,
-            EI_IMPULSE_ERROR::EI_IMPULSE_INVALID_SIZE => EdgeImpulseError::MinSizeRatio,
-            EI_IMPULSE_ERROR::EI_IMPULSE_ONLY_SUPPORTED_FOR_IMAGES => {
+            bindings::EI_IMPULSE_ERROR::EI_IMPULSE_DSP_ERROR => EdgeImpulseError::ReadSensor,
+            bindings::EI_IMPULSE_ERROR::EI_IMPULSE_INVALID_SIZE => EdgeImpulseError::MinSizeRatio,
+            bindings::EI_IMPULSE_ERROR::EI_IMPULSE_ONLY_SUPPORTED_FOR_IMAGES => {
                 EdgeImpulseError::OnlySupportImages
             }
-            EI_IMPULSE_ERROR::EI_IMPULSE_UNSUPPORTED_INFERENCING_ENGINE => {
+            bindings::EI_IMPULSE_ERROR::EI_IMPULSE_UNSUPPORTED_INFERENCING_ENGINE => {
                 EdgeImpulseError::UnsupportedInferencingEngine
             }
-            EI_IMPULSE_ERROR::EI_IMPULSE_INFERENCE_ERROR => EdgeImpulseError::NoValidImpulse,
+            bindings::EI_IMPULSE_ERROR::EI_IMPULSE_INFERENCE_ERROR => EdgeImpulseError::NoValidImpulse,
             _ => EdgeImpulseError::Other,
         }
     }
@@ -143,7 +144,7 @@ pub struct EdgeImpulseHandle {
 impl EdgeImpulseHandle {
     /// Create a new Edge Impulse handle
     pub fn new() -> EdgeImpulseResult<Self> {
-        let handle = ptr::null_mut();
+        let handle = std::ptr::null_mut::<bindings::ei_impulse_handle_t>();
         let result = unsafe { ei_ffi_init_impulse(handle) };
         let error = EdgeImpulseError::from(result);
         if error != EdgeImpulseError::Ok {
@@ -172,9 +173,8 @@ impl Signal {
             get_data: [0u64; 4], // Initialize with zeros for std::function
             total_length: 0,
         });
-
-        let result =
-            unsafe { ei_ffi_signal_from_buffer(data.as_ptr(), data.len(), &mut *c_signal) };
+        let c_signal_ptr: *mut bindings::ei_signal_t = &mut *c_signal;
+        let result = unsafe { ei_ffi_signal_from_buffer(data.as_ptr(), data.len(), c_signal_ptr) };
 
         if result == bindings::EI_IMPULSE_ERROR::EI_IMPULSE_OK {
             Ok(Self { c_signal })
@@ -278,9 +278,9 @@ impl InferenceResult {
             let result = &*self.result;
             let t = &result.timing;
             TimingResult {
-                dsp: t.dsp,
-                classification: t.classification,
-                anomaly: t.anomaly,
+                dsp: t.dsp as i32,
+                classification: t.classification as i32,
+                anomaly: t.anomaly as i32,
             }
         }
     }
@@ -312,9 +312,7 @@ impl EdgeImpulseClassifier {
 
     /// Initialize the classifier
     pub fn init(&mut self) -> EdgeImpulseResult<()> {
-        unsafe {
-            ei_ffi_run_classifier_init();
-        }
+        unsafe { ei_ffi_run_classifier_init() };
         self.initialized = true;
         Ok(())
     }
@@ -322,9 +320,7 @@ impl EdgeImpulseClassifier {
     /// Deinitialize the classifier
     pub fn deinit(&mut self) -> EdgeImpulseResult<()> {
         if self.initialized {
-            unsafe {
-                ei_ffi_run_classifier_deinit();
-            }
+            unsafe { ei_ffi_run_classifier_deinit() };
             self.initialized = false;
         }
         Ok(())
@@ -337,19 +333,14 @@ impl EdgeImpulseClassifier {
         debug: bool,
     ) -> EdgeImpulseResult<InferenceResult> {
         if !self.initialized {
-            return Err(EdgeImpulseError::NoValidImpulse);
+            return Err(EdgeImpulseError::Other);
         }
-
         let result = InferenceResult::new();
-        let result_code = unsafe {
-            ei_ffi_run_classifier(signal.as_ptr(), result.result, if debug { 1 } else { 0 })
-        };
-
+        let result_code = unsafe { ei_ffi_run_classifier(signal.as_ptr(), result.result, if debug { 1 } else { 0 }) };
         if result_code == bindings::EI_IMPULSE_ERROR::EI_IMPULSE_OK {
             Ok(result)
         } else {
-            let error = EdgeImpulseError::from(result_code);
-            Err(error)
+            Err(EdgeImpulseError::from(result_code))
         }
     }
 
@@ -361,24 +352,20 @@ impl EdgeImpulseClassifier {
         enable_maf: bool,
     ) -> EdgeImpulseResult<InferenceResult> {
         if !self.initialized {
-            return Err(EdgeImpulseError::NoValidImpulse);
+            return Err(EdgeImpulseError::Other);
         }
-
         let result = InferenceResult::new();
-        let result_code = unsafe {
-            ei_ffi_run_classifier_continuous(
+                    let result_code = unsafe { ei_ffi_run_classifier_continuous(
                 signal.as_ptr(),
                 result.result,
                 if debug { 1 } else { 0 },
                 if enable_maf { 1 } else { 0 },
-            )
-        };
-
-        let error = EdgeImpulseError::from(result_code);
-        if error != EdgeImpulseError::Ok {
-            return Err(error);
+            ) };
+            if result_code == bindings::EI_IMPULSE_ERROR::EI_IMPULSE_OK {
+            Ok(result)
+        } else {
+            Err(EdgeImpulseError::from(result_code))
         }
-        Ok(result)
     }
 
     /// Run inference on pre-processed features
@@ -389,24 +376,21 @@ impl EdgeImpulseClassifier {
         debug: bool,
     ) -> EdgeImpulseResult<InferenceResult> {
         if !self.initialized {
-            return Err(EdgeImpulseError::NoValidImpulse);
+            return Err(EdgeImpulseError::Other);
         }
-
         let result = InferenceResult::new();
-        let result_code = unsafe {
-            ei_ffi_run_inference(
-                handle.handle,
-                fmatrix,
-                result.result,
-                if debug { 1 } else { 0 },
-            )
-        };
-
+        let result_code = unsafe { ei_ffi_run_inference(
+            handle.handle,
+            fmatrix,
+            result.result,
+            if debug { 1 } else { 0 },
+        ) };
         let error = EdgeImpulseError::from(result_code);
-        if error != EdgeImpulseError::Ok {
-            return Err(error);
+        if error == EdgeImpulseError::Ok {
+            Ok(result)
+        } else {
+            Err(error)
         }
-        Ok(result)
     }
 }
 

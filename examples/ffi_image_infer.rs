@@ -1,7 +1,7 @@
 //! Image Classification Example using Edge Impulse FFI
 //!
 //! Usage:
-//!   cargo run --example image_infer -- --image <path_to_image> [--debug]
+//!   cargo run --example ffi_image_infer -- --image <path_to_image> [--debug]
 
 use clap::Parser;
 use edge_impulse_ffi_rs::model_metadata;

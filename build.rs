@@ -278,80 +278,149 @@ fn extract_and_write_model_metadata() {
 }
 
 fn main() {
+    // Force rerun on every build to ensure dummy files are always copied
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=src/bindings_dummy.rs");
+    println!("cargo:rerun-if-changed=src/model_metadata_dummy.rs");
+
+    // Get the current working directory and construct absolute paths
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+    let manifest_path = PathBuf::from(manifest_dir);
+
+    println!("cargo:warning=Manifest directory: {:?}", manifest_path);
+
+    let model_header = manifest_path.join("model/model-parameters/model_metadata.h");
+    let out_bindings = manifest_path.join("src/bindings.rs");
+    let out_metadata = manifest_path.join("src/model_metadata.rs");
+    let bindings_dummy = manifest_path.join("src/bindings_dummy.rs");
+    let metadata_dummy = manifest_path.join("src/model_metadata_dummy.rs");
+
+    // Check if we have a valid model structure
+    let wrapper_header = manifest_path.join("model/edge_impulse_wrapper.h");
+    let cmake_lists = manifest_path.join("model/CMakeLists.txt");
+    let sdk_dir = manifest_path.join("model/edge-impulse-sdk");
+
+    let has_valid_model = wrapper_header.exists() && cmake_lists.exists() && sdk_dir.exists();
+
+    if has_valid_model {
+        println!("cargo:warning=Valid Edge Impulse model found, generating real bindings...");
+
+        // Generate real bindings using bindgen
+        let bindings = bindgen::Builder::default()
+            .header(wrapper_header.to_str().unwrap())
+            .clang_arg("-xc++")
+            .clang_arg("-std=c++17")
+            .clang_arg("-Imodel")
+            .clang_arg("-Imodel/edge-impulse-sdk")
+            .rustified_enum(".*")
+            .default_enum_style(bindgen::EnumVariation::Rust {
+                non_exhaustive: false,
+            })
+            .prepend_enum_name(false)
+            .translate_enum_integer_types(true)
+            .derive_copy(true)
+            .derive_debug(true)
+            .derive_default(true)
+            .derive_eq(true)
+            .derive_hash(true)
+            .derive_partialeq(true)
+            .derive_partialord(true)
+            .derive_ord(true)
+            .allowlist_type("ei_impulse_handle_t")
+            .allowlist_type("ei_impulse_result_t")
+            .allowlist_type("ei_feature_t")
+            .allowlist_type("ei_signal_t")
+            .allowlist_type("EI_IMPULSE_ERROR")
+            .allowlist_type("ei_impulse_result_classification_t")
+            .allowlist_type("ei_impulse_result_bounding_box_t")
+            .allowlist_type("ei_impulse_result_timing_t")
+            .allowlist_function("ei_ffi_run_classifier_init")
+            .allowlist_function("ei_ffi_run_classifier_deinit")
+            .allowlist_function("ei_ffi_init_impulse")
+            .allowlist_function("ei_ffi_run_classifier")
+            .allowlist_function("ei_ffi_run_classifier_continuous")
+            .allowlist_function("ei_ffi_run_inference")
+            .allowlist_function("ei_ffi_signal_from_buffer")
+            .generate()
+            .expect("Unable to generate bindings");
+
+        bindings
+            .write_to_file(&out_bindings)
+            .expect("Couldn't write bindings!");
+
+        // Add allow attributes to suppress warnings in generated bindings
+        let bindings_content = std::fs::read_to_string(&out_bindings).expect("Failed to read generated bindings");
+        let modified_content = format!(
+            "#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals, unpredictable_function_pointer_comparisons)]\n{}",
+            bindings_content
+        );
+        std::fs::write(&out_bindings, modified_content).expect("Failed to write modified bindings");
+
+        // Generate model metadata
+        if model_header.exists() {
+            extract_and_write_model_metadata();
+        } else {
+            println!("cargo:warning=Model metadata header not found, copying dummy metadata");
+            fs::copy(&metadata_dummy, &out_metadata).expect("Failed to copy dummy model metadata");
+        }
+
+        println!("cargo:warning=Real bindings generated successfully!");
+    } else {
+        // No valid model found, use dummy files
+        println!("cargo:warning=No valid Edge Impulse model found, using dummy bindings...");
+        println!("cargo:warning=Copying from {:?} to {:?}", bindings_dummy, out_bindings);
+        println!("cargo:warning=Copying from {:?} to {:?}", metadata_dummy, out_metadata);
+
+        // Check if source files exist
+        if !bindings_dummy.exists() {
+            panic!("Dummy bindings file not found at {:?}", bindings_dummy);
+        }
+        if !metadata_dummy.exists() {
+            panic!("Dummy metadata file not found at {:?}", metadata_dummy);
+        }
+
+        // Simple direct file copy - no reading/writing, just copy
+        fs::copy(&bindings_dummy, &out_bindings).expect("Failed to copy dummy bindings");
+        fs::copy(&metadata_dummy, &out_metadata).expect("Failed to copy dummy model metadata");
+        println!("cargo:warning=Successfully copied dummy files");
+        println!("cargo:warning=No model found, using dummy bindings and dummy model metadata.");
+        println!("cargo:warning=Dummy files copied successfully!");
+
+        // Also ensure the dummy static library is named as expected for the linker
+        let dummy_lib = manifest_path.join("model/build/libedge-impulse-sdk-dummy.a");
+        let expected_lib = manifest_path.join("model/build/libedge-impulse-sdk.a");
+        if dummy_lib.exists() {
+            // Copy or overwrite the expected library name
+            if let Err(e) = fs::copy(&dummy_lib, &expected_lib) {
+                println!("cargo:warning=Failed to copy dummy static library: {}", e);
+            } else {
+                println!("cargo:warning=Copied dummy static library to expected name");
+            }
+        } else {
+            println!("cargo:warning=Dummy static library not found at {:?}", dummy_lib);
+        }
+    }
+
     // Check if we should clean the model folder
     if env::var("CLEAN_MODEL").is_ok() {
         clean_model_folder();
         return;
     }
 
-    // Use 'model' as the only model folder
+    // Define model directory and build directory for use throughout the function
     let model_dir = "model";
-    build_helpers::copy_ffi_glue(model_dir);
-
-    // Update all model references to use model_dir
     let cpp_dir = PathBuf::from(model_dir);
     let build_dir = cpp_dir.join("build");
 
-    // Generate Rust bindings for the C API wrapper
-    let bindings = bindgen::Builder::default()
-        .header(&format!("{}/edge_impulse_wrapper.h", model_dir))
-        // Use C++ mode and the correct standard
-        .clang_arg("-xc++")
-        .clang_arg("-std=c++17")
-        // Add include paths for the SDK
-        .clang_arg(&format!("-I{}", model_dir))
-        .clang_arg(&format!("-I{}/edge-impulse-sdk", model_dir))
-        // Convert C names to Rust naming conventions
-        .rustified_enum(".*")
-        .default_enum_style(bindgen::EnumVariation::Rust {
-            non_exhaustive: false,
-        })
-        .prepend_enum_name(false)
-        .translate_enum_integer_types(true)
-        .derive_copy(true)
-        .derive_debug(true)
-        .derive_default(true)
-        .derive_eq(true)
-        .derive_hash(true)
-        .derive_partialeq(true)
-        .derive_partialord(true)
-        .derive_ord(true)
-        // Be very selective about what we bind to avoid conflicts
-        .allowlist_type("ei_impulse_handle_t")
-        .allowlist_type("ei_impulse_result_t")
-        .allowlist_type("ei_feature_t")
-        .allowlist_type("ei_signal_t")
-        .allowlist_type("EI_IMPULSE_ERROR")
-        .allowlist_type("ei_impulse_result_classification_t")
-        .allowlist_type("ei_impulse_result_bounding_box_t")
-        .allowlist_type("ei_impulse_result_timing_t")
-        .allowlist_function("ei_ffi_run_classifier_init")
-        .allowlist_function("ei_ffi_run_classifier_deinit")
-        .allowlist_function("ei_ffi_init_impulse")
-        .allowlist_function("ei_ffi_run_classifier")
-        .allowlist_function("ei_ffi_run_classifier_continuous")
-        .allowlist_function("ei_ffi_run_inference")
-        .allowlist_function("ei_ffi_signal_from_buffer")
-        // Generate bindings
-        .generate()
-        .expect("Unable to generate bindings");
-    bindings
-        .write_to_file("src/bindings.rs")
-        .expect("Couldn't write bindings!");
+        // If we have a valid model, we need to build the C++ library
+    if has_valid_model {
+        build_helpers::copy_ffi_glue(model_dir);
 
-    // Add allow attributes to suppress warnings in generated bindings
-    let bindings_content =
-        std::fs::read_to_string("src/bindings.rs").expect("Failed to read generated bindings");
-    let modified_content = format!(
-        "#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]\n{}",
-        bindings_content
-    );
-    std::fs::write("src/bindings.rs", modified_content).expect("Failed to write modified bindings");
+        // Create build directory if it doesn't exist
+        std::fs::create_dir_all(&build_dir).expect("Failed to create build directory");
+    }
 
-    // Create build directory if it doesn't exist
-    std::fs::create_dir_all(&build_dir).expect("Failed to create build directory");
-
-            // Check if we need full TensorFlow Lite
+    // Check if we need full TensorFlow Lite
     // Only USE_FULL_TFLITE is supported
     let use_full_tflite = env::var("USE_FULL_TFLITE").is_ok();
 
@@ -472,55 +541,79 @@ fn main() {
         cmake_args.push(format!("-DPYTHON_CROSS_PATH={}", path));
     }
 
-    let cmake_status = Command::new("cmake")
-        .args(&cmake_args)
-        .current_dir(&build_dir)
-        .status()
-        .expect("Failed to run cmake configure");
+                // If we have a valid model, check if we need to build the C++ library
+    if has_valid_model {
+        // Check if the library already exists
+        let lib_path = build_dir.join("libedge-impulse-sdk.a");
+        if !lib_path.exists() {
+            println!("cargo:warning=Library not found, building C++ library...");
 
-    if !cmake_status.success() {
-        panic!("CMake configuration failed");
+            let cmake_status = Command::new("cmake")
+                .args(&cmake_args)
+                .current_dir(&build_dir)
+                .status()
+                .expect("Failed to run cmake configure");
+
+            if !cmake_status.success() {
+                panic!("CMake configuration failed");
+            }
+
+            // Build the library
+            let make_status = Command::new("make")
+                .arg("-j")
+                .arg(&env::var("NUM_JOBS").unwrap_or_else(|_| "4".to_string()))
+                .current_dir(&build_dir)
+                .status()
+                .expect("Failed to run make");
+
+            if !make_status.success() {
+                panic!("Make build failed");
+            }
+        } else {
+            println!("cargo:warning=Library already exists, skipping build");
+        }
+
+        // Diagnostic: print contents of build directory
+        let entries = std::fs::read_dir(&build_dir).expect("Failed to read build directory");
+        println!("Contents of {}:", build_dir.display());
+        for entry in entries {
+            let entry = entry.expect("Failed to read entry");
+            println!("  {}", entry.file_name().to_string_lossy());
+        }
     }
 
-    // Build the library
-    let make_status = Command::new("make")
-        .arg("-j")
-        .arg(&env::var("NUM_JOBS").unwrap_or_else(|_| "4".to_string()))
-        .current_dir(&build_dir)
-        .status()
-        .expect("Failed to run make");
+    // If we have a valid model, always set up library linking (regardless of whether we built it or not)
+    if has_valid_model {
+        println!("cargo:warning=Setting up library linking for valid model");
+        println!("cargo:warning=Build directory: {}", build_dir.display());
 
-    if !make_status.success() {
-        panic!("Make build failed");
+        // Tell Cargo where to find the built library - use absolute path
+        let absolute_build_dir = build_dir.canonicalize().expect("Failed to get absolute path");
+        println!("cargo:rustc-link-search=native={}", absolute_build_dir.display());
+
+        // Link against the Edge Impulse SDK library
+        // The library name will depend on what CMake generates, typically something like "edge-impulse-sdk"
+        println!("cargo:rustc-link-lib=static=edge-impulse-sdk");
+
+        // Link against C++ standard library
+        println!("cargo:rustc-link-lib=c++");
+
+        // Re-run if any of the source files change
+        println!("cargo:rerun-if-changed={}/CMakeLists.txt", model_dir);
+        println!(
+            "cargo:rerun-if-changed={}/edge_impulse_wrapper.h",
+            model_dir
+        );
+        println!("cargo:rerun-if-changed={}/edge-impulse-sdk", model_dir);
+        println!("cargo:rerun-if-changed={}/model-parameters", model_dir);
+        println!("cargo:rerun-if-changed={}/tflite-model", model_dir);
+
+        println!("cargo:warning=Library linking setup complete");
+    } else {
+        println!("cargo:warning=No valid model found, skipping library linking");
     }
-
-    // Diagnostic: print contents of build directory
-    let entries = std::fs::read_dir(&build_dir).expect("Failed to read build directory");
-    println!("Contents of {}:", build_dir.display());
-    for entry in entries {
-        let entry = entry.expect("Failed to read entry");
-        println!("  {}", entry.file_name().to_string_lossy());
-    }
-
-    // Tell Cargo where to find the built library
-    println!("cargo:rustc-link-search=native={}", build_dir.display());
-
-    // Link against the Edge Impulse SDK library
-    // The library name will depend on what CMake generates, typically something like "edge-impulse-sdk"
-    println!("cargo:rustc-link-lib=static=edge-impulse-sdk");
-
-    // Link against C++ standard library
-    println!("cargo:rustc-link-lib=c++");
-
-    // Re-run if any of the source files change
-    println!("cargo:rerun-if-changed={}/CMakeLists.txt", model_dir);
-    println!(
-        "cargo:rerun-if-changed={}/edge_impulse_wrapper.h",
-        model_dir
-    );
-    println!("cargo:rerun-if-changed={}/edge-impulse-sdk", model_dir);
-    println!("cargo:rerun-if-changed={}/model-parameters", model_dir);
-    println!("cargo:rerun-if-changed={}/tflite-model", model_dir);
 
     extract_and_write_model_metadata();
 }
+
+
