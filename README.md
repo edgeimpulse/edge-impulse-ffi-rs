@@ -34,18 +34,7 @@ This will:
 
 **Note**: The download process may take several minutes on the first build.
 
-**Security**: Never commit your API key to version control. Consider using environment variables:
-```toml
-[package.metadata.edge-impulse]
-project_id = 12345
-api_key = "${EI_API_KEY}"
-```
-
-Then set the environment variable:
-```sh
-export EI_API_KEY="ei_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-cargo build
-```
+**Security**: Never commit your API key to version control.
 
 ## Building
 
