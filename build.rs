@@ -1,9 +1,418 @@
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
+
+// Add serde imports for JSON handling
+use serde::Deserialize;
 
 mod build_helpers;
+
+// JSON response structures for Edge Impulse API
+#[derive(Debug, Deserialize)]
+struct ProjectResponse {
+    success: bool,
+    #[allow(dead_code)]
+    project: Project,
+    #[serde(rename = "defaultImpulseId")]
+    default_impulse_id: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Project {
+    #[allow(dead_code)]
+    id: i32,
+    #[allow(dead_code)]
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct BuildJobResponse {
+    success: bool,
+    id: i32,
+}
+
+#[derive(Debug, Deserialize)]
+struct JobStatusResponse {
+    success: bool,
+    job: JobStatus,
+}
+
+#[derive(Debug, Deserialize)]
+struct JobStatus {
+    #[allow(dead_code)]
+    id: i32,
+    category: String,
+    finished: Option<String>, // Can be a timestamp string when finished
+    #[serde(rename = "finishedSuccessful")]
+    finished_successful: Option<bool>,
+}
+
+/// Read Edge Impulse project configuration from Cargo.toml metadata
+fn read_edge_impulse_config() -> Option<(String, String)> {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").ok()?;
+    let manifest_path = PathBuf::from(manifest_dir).join("Cargo.toml");
+
+    let manifest_content = fs::read_to_string(manifest_path).ok()?;
+
+    // Simple TOML parsing for our specific use case
+    let mut project_id = None;
+    let mut api_key = None;
+
+    let mut in_edge_impulse_section = false;
+
+    for line in manifest_content.lines() {
+        let line = line.trim();
+
+        if line == "[package.metadata.edge-impulse]" {
+            in_edge_impulse_section = true;
+            continue;
+        }
+
+        if in_edge_impulse_section {
+            if line.starts_with('[') && line != "[package.metadata.edge-impulse]" {
+                // We've moved to a different section
+                break;
+            }
+
+            if line.starts_with("project-id") {
+                if let Some(value) = line.split('=').nth(1) {
+                    project_id = Some(value.trim().trim_matches('"').to_string());
+                }
+            } else if line.starts_with("api-key") {
+                if let Some(value) = line.split('=').nth(1) {
+                    api_key = Some(value.trim().trim_matches('"').to_string());
+                }
+            }
+        }
+    }
+
+    if let (Some(pid), Some(key)) = (project_id, api_key) {
+        Some((pid, key))
+    } else {
+        None
+    }
+}
+
+/// Download Edge Impulse model from the REST API using curl
+///
+/// This function:
+/// 1. Gets project information to find the default impulse ID
+/// 2. Triggers a build job for the model
+/// 3. Polls the job status until completion
+/// 4. Downloads and extracts the model files
+/// 5. Returns true if successful, false otherwise
+fn download_model_from_edge_impulse(project_id: &str, api_key: &str) -> bool {
+    println!("cargo:info=Starting model download process...");
+    println!("cargo:info=Project ID: {}", project_id);
+    println!(
+        "cargo:info=API Key: {}...",
+        &api_key[..api_key.len().min(8)]
+    );
+
+    // Get the Edge Impulse Studio host from environment or use default
+    let studio_host = env::var("EDGE_IMPULSE_STUDIO_HOST")
+        .unwrap_or_else(|_| "https://studio.edgeimpulse.com".to_string());
+
+    let base_url = format!("{}/v1/api", studio_host);
+
+    // Step 1: Get project information to find defaultImpulseId
+    println!("cargo:info=Step 1/5: Getting project information...");
+    let project_url = format!("{}/{}", base_url, project_id);
+
+    let project_response: ProjectResponse =
+        match ureq::get(&project_url).set("x-api-key", api_key).call() {
+            Ok(response) => {
+                if response.status() != 200 {
+                    println!(
+                        "cargo:error=Failed to get project info: HTTP {}",
+                        response.status()
+                    );
+                    return false;
+                }
+                match response.into_json() {
+                    Ok(data) => data,
+                    Err(e) => {
+                        println!("cargo:error=Failed to parse project response: {}", e);
+                        return false;
+                    }
+                }
+            }
+            Err(e) => {
+                println!("cargo:error=Failed to get project info: {}", e);
+                return false;
+            }
+        };
+
+    if !project_response.success {
+        println!("cargo:error=Project API call was not successful");
+        return false;
+    }
+
+    let default_impulse_id = match project_response.default_impulse_id {
+        Some(id) => id,
+        None => {
+            println!("cargo:error=No default impulse ID found in project");
+            return false;
+        }
+    };
+
+    println!(
+        "cargo:info=Found default impulse ID: {}",
+        default_impulse_id
+    );
+
+    // Step 2: Trigger build job
+    println!("cargo:info=Step 2/5: Triggering model build job...");
+    let build_url = format!(
+        "{}/{}/jobs/build-ondevice-model?type=zip&impulse={}",
+        base_url, project_id, default_impulse_id
+    );
+
+    let build_response: BuildJobResponse = match ureq::post(&build_url)
+        .set("x-api-key", api_key)
+        .set("content-type", "application/json")
+        .send_json(serde_json::json!({"engine": "tflite-eon"}))
+    {
+        Ok(response) => {
+            if response.status() != 200 {
+                println!(
+                    "cargo:error=Failed to trigger build: HTTP {}",
+                    response.status()
+                );
+                return false;
+            }
+            match response.into_json() {
+                Ok(data) => data,
+                Err(e) => {
+                    println!("cargo:error=Failed to parse build response: {}", e);
+                    return false;
+                }
+            }
+        }
+        Err(e) => {
+            println!("cargo:error=Failed to trigger build: {}", e);
+            return false;
+        }
+    };
+
+    if !build_response.success {
+        println!("cargo:error=Build job creation was not successful");
+        return false;
+    }
+
+    let job_id = build_response.id;
+    println!("cargo:info=Build job created with ID: {}", job_id);
+
+    // Step 3: Poll job status until completion
+    println!("cargo:info=Step 3/5: Waiting for model build to complete...");
+    println!("cargo:info=This step typically takes 2-5 minutes. Polling every 5 seconds...");
+    let status_url = format!("{}/{}/jobs/{}/status", base_url, project_id, job_id);
+
+    let mut attempts = 0;
+    const MAX_ATTEMPTS: u32 = 120; // 10 minutes with 5-second intervals
+
+    loop {
+        attempts += 1;
+        if attempts > MAX_ATTEMPTS {
+            println!(
+                "cargo:error=Build timed out after {} attempts ({} minutes)",
+                MAX_ATTEMPTS,
+                MAX_ATTEMPTS * 5 / 60
+            );
+            println!("cargo:error=The model build is taking longer than expected. You can try again or check your Edge Impulse project.");
+            return false;
+        }
+
+        // Wait 5 seconds between polls
+        std::thread::sleep(Duration::from_secs(5));
+
+        let status_response: JobStatusResponse =
+            match ureq::get(&status_url).set("x-api-key", api_key).call() {
+                Ok(response) => {
+                    if response.status() != 200 {
+                        println!(
+                            "cargo:error=Failed to get job status: HTTP {}",
+                            response.status()
+                        );
+                        return false;
+                    }
+                    match response.into_json() {
+                        Ok(data) => data,
+                        Err(e) => {
+                            println!("cargo:error=Failed to parse job status: {}", e);
+                            return false;
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("cargo:error=Failed to get job status: {}", e);
+                    return false;
+                }
+            };
+
+        if !status_response.success {
+            println!("cargo:error=Job status API call was not successful");
+            return false;
+        }
+
+        let job = status_response.job;
+        println!(
+            "cargo:info=Build status: {} (polling attempt {}/{})",
+            job.category, attempts, MAX_ATTEMPTS
+        );
+
+        // Check if job is finished
+        if let Some(successful) = job.finished_successful {
+            if job.finished.is_some() {
+                if successful {
+                    println!("cargo:info=Build completed successfully!");
+                    break;
+                } else {
+                    println!("cargo:error=Build failed on Edge Impulse servers");
+                    return false;
+                }
+            }
+        }
+    }
+
+    // Step 4: Download the model
+    println!("cargo:info=Step 4/5: Downloading built model...");
+    let download_url = format!(
+        "{}/{}/deployment/download?type=zip&engine=tflite-eon&impulse={}",
+        base_url, project_id, default_impulse_id
+    );
+
+    // Create model directory if it doesn't exist
+    let model_dir = PathBuf::from("model");
+    if !model_dir.exists() {
+        if let Err(e) = fs::create_dir(&model_dir) {
+            println!("cargo:error=Failed to create model directory: {}", e);
+            return false;
+        }
+    }
+
+    // Download the model
+    let download_response = match ureq::get(&download_url).set("x-api-key", api_key).call() {
+        Ok(response) => {
+            if response.status() != 200 {
+                println!(
+                    "cargo:error=Failed to download model: HTTP {}",
+                    response.status()
+                );
+                return false;
+            }
+            response
+        }
+        Err(e) => {
+            println!("cargo:error=Failed to download model: {}", e);
+            return false;
+        }
+    };
+
+    // Step 5: Extract the model
+    println!("cargo:info=Step 5/5: Extracting model files...");
+
+    // Read the ZIP data
+    let mut zip_data = Vec::new();
+    match download_response.into_reader().read_to_end(&mut zip_data) {
+        Ok(_) => {}
+        Err(e) => {
+            println!("cargo:error=Failed to read download data: {}", e);
+            return false;
+        }
+    }
+
+    // Extract ZIP file
+    let mut archive = match zip::ZipArchive::new(std::io::Cursor::new(zip_data)) {
+        Ok(archive) => archive,
+        Err(e) => {
+            println!("cargo:error=Failed to read ZIP archive: {}", e);
+            return false;
+        }
+    };
+
+    // Preserve existing .gitignore and README.md if they exist
+    let gitignore_content = fs::read_to_string(model_dir.join(".gitignore")).ok();
+    let readme_content = fs::read_to_string(model_dir.join("README.md")).ok();
+
+    // Extract all files
+    for i in 0..archive.len() {
+        let mut file = match archive.by_index(i) {
+            Ok(file) => file,
+            Err(e) => {
+                println!("cargo:error=Failed to access file {} in ZIP: {}", i, e);
+                continue;
+            }
+        };
+
+        let file_path = match file.enclosed_name() {
+            Some(path) => path,
+            None => {
+                println!(
+                    "cargo:warning=Skipping file with invalid path: {}",
+                    file.name()
+                );
+                continue;
+            }
+        };
+
+        let target_path = model_dir.join(file_path);
+
+        if file.name().ends_with('/') {
+            // Create directory
+            if let Err(e) = fs::create_dir_all(&target_path) {
+                println!(
+                    "cargo:error=Failed to create directory {:?}: {}",
+                    target_path, e
+                );
+            }
+        } else {
+            // Create parent directory if it doesn't exist
+            if let Some(parent) = target_path.parent() {
+                if let Err(e) = fs::create_dir_all(parent) {
+                    println!(
+                        "cargo:error=Failed to create parent directory {:?}: {}",
+                        parent, e
+                    );
+                    continue;
+                }
+            }
+
+            // Extract file
+            let mut target_file = match fs::File::create(&target_path) {
+                Ok(file) => file,
+                Err(e) => {
+                    println!("cargo:error=Failed to create file {:?}: {}", target_path, e);
+                    continue;
+                }
+            };
+
+            if let Err(e) = std::io::copy(&mut file, &mut target_file) {
+                println!("cargo:error=Failed to write file {:?}: {}", target_path, e);
+            }
+        }
+    }
+
+    // Restore .gitignore and README.md if they existed before
+    if let Some(content) = gitignore_content {
+        if let Err(e) = fs::write(model_dir.join(".gitignore"), content) {
+            println!("cargo:warning=Failed to restore .gitignore: {}", e);
+        }
+    }
+    if let Some(content) = readme_content {
+        if let Err(e) = fs::write(model_dir.join("README.md"), content) {
+            println!("cargo:warning=Failed to restore README.md: {}", e);
+        }
+    }
+
+    println!("cargo:info=Model downloaded and extracted successfully!");
+    println!("cargo:info=Model is now ready for use. Future builds will use the local copy.");
+
+    true
+}
 
 fn clean_model_folder() {
     let model_dir = "model";
@@ -281,6 +690,8 @@ fn main() {
     // Force rerun on every build
     println!("cargo:rerun-if-changed=build.rs");
 
+    println!("cargo:info=Build script starting...");
+
     // Get the current working directory and construct absolute paths
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let manifest_path = PathBuf::from(manifest_dir);
@@ -297,7 +708,39 @@ fn main() {
     let tflite_model_dir = manifest_path.join("model/tflite-model");
 
     // Check if we have the essential model components
-    let has_valid_model = sdk_dir.exists() && model_parameters_dir.exists() && tflite_model_dir.exists();
+    let mut has_valid_model =
+        sdk_dir.exists() && model_parameters_dir.exists() && tflite_model_dir.exists();
+
+    // If no valid model found, try to download from Edge Impulse API
+    if !has_valid_model {
+        println!("cargo:warning=No local model found. Downloading from Edge Impulse Studio...");
+        println!("cargo:info=No valid model found locally, checking for Edge Impulse API configuration...");
+
+        if let Some((project_id, api_key)) = read_edge_impulse_config() {
+            println!("cargo:info=Found Edge Impulse configuration in Cargo.toml metadata");
+
+            // Attempt to download the model
+            if download_model_from_edge_impulse(&project_id, &api_key) {
+                // Re-check if we now have a valid model
+                has_valid_model =
+                    sdk_dir.exists() && model_parameters_dir.exists() && tflite_model_dir.exists();
+
+                if has_valid_model {
+                    println!("cargo:info=Model downloaded successfully from Edge Impulse API");
+                } else {
+                    println!("cargo:warning=Model download completed but model structure is still invalid");
+                }
+            } else {
+                println!("cargo:warning=Failed to download model from Edge Impulse API");
+            }
+        } else {
+            println!("cargo:info=No Edge Impulse configuration found in Cargo.toml metadata");
+            println!("cargo:info=To enable automatic model download, add the following to your Cargo.toml:");
+            println!("cargo:info=[package.metadata.edge-impulse]");
+            println!("cargo:info=project-id = \"your-project-id\"");
+            println!("cargo:info=api-key = \"your-api-key\"");
+        }
+    }
 
     // If we have a valid model, copy the FFI glue files to set up the build environment
     if has_valid_model {
@@ -352,7 +795,8 @@ fn main() {
             .expect("Couldn't write bindings!");
 
         // Add allow attributes to suppress warnings in generated bindings
-        let bindings_content = std::fs::read_to_string(&out_bindings).expect("Failed to read generated bindings");
+        let bindings_content =
+            std::fs::read_to_string(&out_bindings).expect("Failed to read generated bindings");
         let modified_content = format!(
             "#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]\n{}",
             bindings_content
@@ -382,7 +826,7 @@ fn main() {
     let cpp_dir = PathBuf::from(model_dir);
     let build_dir = cpp_dir.join("build");
 
-        // If we have a valid model, we need to build the C++ library
+    // If we have a valid model, we need to build the C++ library
     if has_valid_model {
         build_helpers::copy_ffi_glue(model_dir);
 
@@ -413,7 +857,11 @@ fn main() {
         "linux-aarch64" // Renesas RZ/V2L uses aarch64
     } else if env::var("TARGET_RENESAS_RZG2L").is_ok() {
         "linux-aarch64" // Renesas RZ/G2L uses aarch64
-    } else if env::var("TARGET_AM68PA").is_ok() || env::var("TARGET_AM62A").is_ok() || env::var("TARGET_AM68A").is_ok() || env::var("TARGET_TDA4VM").is_ok() {
+    } else if env::var("TARGET_AM68PA").is_ok()
+        || env::var("TARGET_AM62A").is_ok()
+        || env::var("TARGET_AM68A").is_ok()
+        || env::var("TARGET_TDA4VM").is_ok()
+    {
         "linux-aarch64" // TI TDA4VM variants use aarch64
     } else {
         // Auto-detect based on current system
@@ -464,7 +912,10 @@ fn main() {
     if use_full_tflite {
         cmake_args.push("-DEI_CLASSIFIER_USE_FULL_TFLITE=1".to_string());
         cmake_args.push(format!("-DTARGET_PLATFORM={}", target_platform));
-        println!("cargo:info=Building with full TensorFlow Lite for platform: {}", target_platform);
+        println!(
+            "cargo:info=Building with full TensorFlow Lite for platform: {}",
+            target_platform
+        );
     } else {
         println!("cargo:info=Building with TensorFlow Lite Micro");
     }
@@ -511,7 +962,7 @@ fn main() {
         cmake_args.push(format!("-DPYTHON_CROSS_PATH={}", path));
     }
 
-                // If we have a valid model, check if we need to build the C++ library
+    // If we have a valid model, check if we need to build the C++ library
     if has_valid_model {
         // Check if the library already exists
         let lib_path = build_dir.join("libedge-impulse-sdk.a");
@@ -558,8 +1009,13 @@ fn main() {
         println!("cargo:info=Build directory: {}", build_dir.display());
 
         // Tell Cargo where to find the built library - use absolute path
-        let absolute_build_dir = build_dir.canonicalize().expect("Failed to get absolute path");
-        println!("cargo:rustc-link-search=native={}", absolute_build_dir.display());
+        let absolute_build_dir = build_dir
+            .canonicalize()
+            .expect("Failed to get absolute path");
+        println!(
+            "cargo:rustc-link-search=native={}",
+            absolute_build_dir.display()
+        );
 
         // Link against the Edge Impulse SDK library
         // The library name will depend on what CMake generates, typically something like "edge-impulse-sdk"
@@ -588,5 +1044,3 @@ fn main() {
         extract_and_write_model_metadata();
     }
 }
-
-

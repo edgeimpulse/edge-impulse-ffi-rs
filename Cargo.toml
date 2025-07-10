@@ -7,6 +7,13 @@ license = "BSD-3-Clause-Clear"
 repository = "https://github.com/edgeimpulse/edge-impulse-ffi-rs"
 keywords = ["edge-impulse", "machine-learning", "inference", "ffi"]
 categories = ["api-bindings", "science"]
+build = "build.rs"
+
+[package.metadata.edge-impulse]
+# Project ID from Edge Impulse Studio
+# project-id = "12345"
+# API key from Edge Impulse Studio (Settings -> API Keys)
+# api-key = "your-api-key-here"
 
 [lib]
 name = "edge_impulse_ffi_rs"
@@ -22,5 +29,9 @@ image = "0.24"
 [build-dependencies]
 bindgen = "0.69"
 cc = "1.0"
+ureq = { version = "2.0", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+zip = "0.5"
 
 
