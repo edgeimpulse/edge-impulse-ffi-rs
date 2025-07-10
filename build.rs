@@ -692,7 +692,10 @@ fn main() {
                     sdk_dir.exists() && model_parameters_dir.exists() && tflite_model_dir.exists();
 
                 if has_valid_model {
-                    println!("cargo:warning=Model was downloaded from Edge Impulse Studio project ID {}", project_id);
+                    println!(
+                        "cargo:warning=Model was downloaded from Edge Impulse Studio project ID {}",
+                        project_id
+                    );
                 } else {
                     println!("cargo:warning=Model download completed but model structure is still invalid");
                 }
@@ -1007,5 +1010,7 @@ fn main() {
     // Only extract model metadata if we have a valid model
     if has_valid_model {
         extract_and_write_model_metadata();
+        // Emit cargo:root for dependents
+        println!("cargo:root={}", build_dir.display());
     }
 }

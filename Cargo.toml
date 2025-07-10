@@ -8,8 +8,7 @@ repository = "https://github.com/edgeimpulse/edge-impulse-ffi-rs"
 keywords = ["edge-impulse", "machine-learning", "inference", "ffi"]
 categories = ["api-bindings", "science"]
 build = "build.rs"
-
-
+links = "edge_impulse_ffi_rs"
 
 [lib]
 name = "edge_impulse_ffi_rs"

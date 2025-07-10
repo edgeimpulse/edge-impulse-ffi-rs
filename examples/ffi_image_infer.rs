@@ -9,7 +9,6 @@ use image::{self, GenericImageView};
 use image::{imageops::FilterType, DynamicImage, RgbImage};
 use std::error::Error;
 
-
 /// Command line parameters for the image classification example
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -35,7 +34,8 @@ fn resize_and_crop(
         x if x == 0 => img // EI_CLASSIFIER_RESIZE_SQUASH
             .resize_exact(input_width, input_height, FilterType::Triangle)
             .to_rgb8(),
-        x if x == 1 => { // EI_CLASSIFIER_RESIZE_FIT_SHORTEST
+        x if x == 1 => {
+            // EI_CLASSIFIER_RESIZE_FIT_SHORTEST
             let factor = (input_width as f32 / w as f32).min(input_height as f32 / h as f32);
             let resize_w = (w as f32 * factor).round() as u32;
             let resize_h = (h as f32 * factor).round() as u32;
@@ -56,7 +56,8 @@ fn resize_and_crop(
             )
             .to_rgb8()
         }
-        x if x == 2 => { // EI_CLASSIFIER_RESIZE_FIT_LONGEST
+        x if x == 2 => {
+            // EI_CLASSIFIER_RESIZE_FIT_LONGEST
             let factor = (input_width as f32 / w as f32).max(input_height as f32 / h as f32);
             let resize_w = (w as f32 * factor).round() as u32;
             let resize_h = (h as f32 * factor).round() as u32;
@@ -110,7 +111,10 @@ fn print_classification_results(result: &ei_impulse_result_t, label_count: u16) 
         // Note: For multiple labels, you'd typically need to access the results
         // through a different mechanism or pointer provided by the C library
         if label_count > 1 {
-            println!("  Note: Model has {} labels but only first result shown", label_count);
+            println!(
+                "  Note: Model has {} labels but only first result shown",
+                label_count
+            );
         }
     }
 }
@@ -120,10 +124,7 @@ fn print_bounding_boxes(result: &ei_impulse_result_t) {
     if result.bounding_boxes_count > 0 && !result.bounding_boxes.is_null() {
         println!("Object detection results:");
         let boxes = unsafe {
-            std::slice::from_raw_parts(
-                result.bounding_boxes,
-                result.bounding_boxes_count as usize,
-            )
+            std::slice::from_raw_parts(result.bounding_boxes, result.bounding_boxes_count as usize)
         };
         for (i, bb) in boxes.iter().enumerate() {
             if !bb.label.is_null() {
@@ -145,9 +146,15 @@ fn print_bounding_boxes(result: &ei_impulse_result_t) {
 fn print_timing(timing: &ei_impulse_result_timing_t) {
     println!("Timing:");
     println!("  DSP: {} ms ({} μs)", timing.dsp, timing.dsp_us);
-    println!("  Classification: {} ms ({} μs)", timing.classification, timing.classification_us);
+    println!(
+        "  Classification: {} ms ({} μs)",
+        timing.classification, timing.classification_us
+    );
     if timing.anomaly > 0 {
-        println!("  Anomaly: {} ms ({} μs)", timing.anomaly, timing.anomaly_us);
+        println!(
+            "  Anomaly: {} ms ({} μs)",
+            timing.anomaly, timing.anomaly_us
+        );
     }
 }
 
@@ -156,10 +163,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // For this example, we'll use hardcoded values since we don't have model metadata
     // In a real application, you'd get these from the model metadata
-    let input_width = 96;  // Example value
+    let input_width = 96; // Example value
     let input_height = 96; // Example value
-    let resize_mode = 0;   // EI_CLASSIFIER_RESIZE_SQUASH
-    let label_count = 2;   // Example value
+    let resize_mode = 0; // EI_CLASSIFIER_RESIZE_SQUASH
+    let label_count = 2; // Example value
 
     println!("Using input dimensions: {}x{}", input_width, input_height);
 
@@ -201,13 +208,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Create signal from buffer using the FFI function
     let mut signal = ei_signal_t::default();
-    let result_code = unsafe {
-        ei_ffi_signal_from_buffer(
-            features.as_ptr(),
-            features.len(),
-            &mut signal,
-        )
-    };
+    let result_code =
+        unsafe { ei_ffi_signal_from_buffer(features.as_ptr(), features.len(), &mut signal) };
 
     if result_code != EI_IMPULSE_ERROR::EI_IMPULSE_OK {
         eprintln!("Failed to create signal from buffer: {:?}", result_code);
@@ -219,9 +221,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Run inference using raw C function
     let debug_int = if args.debug { 1 } else { 0 };
-    let result_code = unsafe {
-        ei_ffi_run_classifier(&mut signal, &mut result, debug_int)
-    };
+    let result_code = unsafe { ei_ffi_run_classifier(&mut signal, &mut result, debug_int) };
 
     match result_code {
         EI_IMPULSE_ERROR::EI_IMPULSE_OK => {
@@ -237,7 +237,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             print_timing(&result.timing);
         }
         error_code => {
-            eprintln!("Error running inference: {:?} (code: {})", error_code, error_code as i32);
+            eprintln!(
+                "Error running inference: {:?} (code: {})",
+                error_code, error_code as i32
+            );
             println!("This might be expected if:");
             println!("1. No model is loaded/initialized");
             println!("2. The signal format doesn't match what the model expects");
