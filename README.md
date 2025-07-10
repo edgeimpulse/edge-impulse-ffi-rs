@@ -19,12 +19,12 @@ This project lets you run Edge Impulse machine learning models from Rust using a
    ```
 
 ### Option 2: Automated Model Download
-You can automatically download and build your Edge Impulse model during the build process by adding metadata to your `Cargo.toml`:
+You can automatically download and build your Edge Impulse model during the build process by setting environment variables:
 
-```toml
-[package.metadata.edge-impulse]
-project_id = 12345
-api_key = "ei_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+```sh
+export EI_PROJECT_ID=12345
+export EI_API_KEY=ei_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+cargo build
 ```
 
 This will:
@@ -34,7 +34,7 @@ This will:
 
 **Note**: The download process may take several minutes on the first build.
 
-**Security**: Never commit your API key to version control.
+**Security**: Never commit your API key to version control. Environment variables are the recommended approach for managing secrets.
 
 ## Building
 
@@ -185,7 +185,7 @@ This is useful when you want to:
 The `build.rs` script automates the entire build process:
 
 ### Model Download (if configured)
-If `[package.metadata.edge-impulse]` is configured in `Cargo.toml`:
+If `EI_PROJECT_ID` and `EI_API_KEY` environment variables are set:
 1. Fetches project information from Edge Impulse REST API
 2. Triggers a build job for the latest model
 3. Polls job status until completion
@@ -219,6 +219,7 @@ See `examples/ffi_image_infer.rs` for a complete example of loading an image, pr
 **Download fails with authentication error:**
 - Verify your API key is correct and has access to the project
 - Check that the project ID exists and is accessible
+- Ensure environment variables are set correctly: `EI_PROJECT_ID` and `EI_API_KEY`
 
 **Download times out:**
 - The download process can take several minutes for large models
@@ -234,7 +235,7 @@ See `examples/ffi_image_infer.rs` for a complete example of loading an image, pr
 If automated download fails, you can:
 1. Manually download the model from Edge Impulse Studio
 2. Extract it to the `model/` directory
-3. Remove the `[package.metadata.edge-impulse]` section from `Cargo.toml`
+3. Unset the environment variables: `unset EI_PROJECT_ID EI_API_KEY`
 4. Build normally with `cargo build`
 
 ## Additional Notes

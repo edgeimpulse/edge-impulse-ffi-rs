@@ -50,50 +50,17 @@ struct JobStatus {
     finished_successful: Option<bool>,
 }
 
-/// Read Edge Impulse project configuration from Cargo.toml metadata
+/// Read Edge Impulse project configuration from environment variables
 fn read_edge_impulse_config() -> Option<(String, String)> {
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").ok()?;
-    let manifest_path = PathBuf::from(manifest_dir).join("Cargo.toml");
-
-    let manifest_content = fs::read_to_string(manifest_path).ok()?;
-
-    // Simple TOML parsing for our specific use case
-    let mut project_id = None;
-    let mut api_key = None;
-
-    let mut in_edge_impulse_section = false;
-
-    for line in manifest_content.lines() {
-        let line = line.trim();
-
-        if line == "[package.metadata.edge-impulse]" {
-            in_edge_impulse_section = true;
-            continue;
-        }
-
-        if in_edge_impulse_section {
-            if line.starts_with('[') && line != "[package.metadata.edge-impulse]" {
-                // We've moved to a different section
-                break;
-            }
-
-            if line.starts_with("project-id") {
-                if let Some(value) = line.split('=').nth(1) {
-                    project_id = Some(value.trim().trim_matches('"').to_string());
-                }
-            } else if line.starts_with("api-key") {
-                if let Some(value) = line.split('=').nth(1) {
-                    api_key = Some(value.trim().trim_matches('"').to_string());
-                }
-            }
-        }
+    // Check environment variables
+    let env_project_id = std::env::var("EI_PROJECT_ID").ok();
+    let env_api_key = std::env::var("EI_API_KEY").ok();
+    if let (Some(pid), Some(key)) = (env_project_id, env_api_key) {
+        return Some((pid, key));
     }
 
-    if let (Some(pid), Some(key)) = (project_id, api_key) {
-        Some((pid, key))
-    } else {
-        None
-    }
+    // No configuration found
+    None
 }
 
 /// Download Edge Impulse model from the REST API using curl
@@ -716,7 +683,7 @@ fn main() {
         println!("cargo:info=No valid model found locally, checking for Edge Impulse API configuration...");
 
         if let Some((project_id, api_key)) = read_edge_impulse_config() {
-            println!("cargo:info=Found Edge Impulse configuration in Cargo.toml metadata");
+            println!("cargo:info=Found Edge Impulse configuration in environment variables");
 
             // Attempt to download the model
             if download_model_from_edge_impulse(&project_id, &api_key) {
@@ -733,11 +700,10 @@ fn main() {
                 println!("cargo:warning=Failed to download model from Edge Impulse API");
             }
         } else {
-            println!("cargo:info=No Edge Impulse configuration found in Cargo.toml metadata");
-            println!("cargo:info=To enable automatic model download, add the following to your Cargo.toml:");
-            println!("cargo:info=[package.metadata.edge-impulse]");
-            println!("cargo:info=project-id = \"your-project-id\"");
-            println!("cargo:info=api-key = \"your-api-key\"");
+            println!("cargo:info=No Edge Impulse configuration found in environment variables");
+            println!("cargo:info=To enable automatic model download, set the following environment variables:");
+            println!("cargo:info=EI_PROJECT_ID=your-project-id");
+            println!("cargo:info=EI_API_KEY=your-api-key");
         }
     }
 
