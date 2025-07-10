@@ -713,7 +713,6 @@ fn main() {
 
     // If no valid model found, try to download from Edge Impulse API
     if !has_valid_model {
-        println!("cargo:warning=No local model found. Downloading from Edge Impulse Studio...");
         println!("cargo:info=No valid model found locally, checking for Edge Impulse API configuration...");
 
         if let Some((project_id, api_key)) = read_edge_impulse_config() {
@@ -726,7 +725,7 @@ fn main() {
                     sdk_dir.exists() && model_parameters_dir.exists() && tflite_model_dir.exists();
 
                 if has_valid_model {
-                    println!("cargo:info=Model downloaded successfully from Edge Impulse API");
+                    println!("cargo:warning=Model was downloaded from Edge Impulse Studio project ID {}", project_id);
                 } else {
                     println!("cargo:warning=Model download completed but model structure is still invalid");
                 }

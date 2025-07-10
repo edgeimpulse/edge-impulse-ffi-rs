@@ -12,7 +12,7 @@ build = "build.rs"
 [package.metadata.edge-impulse]
 # Project ID from Edge Impulse Studio
 # project-id = "12345"
-# API key from Edge Impulse Studio (Settings -> API Keys)
+# Project API key from Edge Impulse Studio
 # api-key = "your-api-key-here"
 
 [lib]

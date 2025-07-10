@@ -172,7 +172,7 @@ cargo run --example ffi_image_infer -- --image <path_to_image>
 To clean the `model/` folder and remove all generated files (keeping only `README.md` and `.gitignore`):
 
 ```sh
-CLEAN_MODEL=1 cargo build
+CLEAN_MODEL=1 cargo build && cargo clean
 ```
 
 This is useful when you want to:
