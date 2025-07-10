@@ -1,14 +1,14 @@
-//! Image Classification Example using Edge Impulse FFI
+//! Image Classification Example using Edge Impulse FFI Raw Bindings
 //!
 //! Usage:
 //!   cargo run --example ffi_image_infer -- --image <path_to_image> [--debug]
 
 use clap::Parser;
-use edge_impulse_ffi_rs::model_metadata;
-use edge_impulse_ffi_rs::{EdgeImpulseClassifier, ModelMetadata, Signal};
+use edge_impulse_ffi_rs::bindings::*;
 use image::{self, GenericImageView};
 use image::{imageops::FilterType, DynamicImage, RgbImage};
 use std::error::Error;
+
 
 /// Command line parameters for the image classification example
 #[derive(Parser, Debug)]
@@ -32,10 +32,10 @@ fn resize_and_crop(
 ) -> RgbImage {
     let (w, h) = img.dimensions();
     match resize_mode {
-        x if x == model_metadata::EI_CLASSIFIER_RESIZE_SQUASH => img
+        x if x == 0 => img // EI_CLASSIFIER_RESIZE_SQUASH
             .resize_exact(input_width, input_height, FilterType::Triangle)
             .to_rgb8(),
-        x if x == model_metadata::EI_CLASSIFIER_RESIZE_FIT_SHORTEST => {
+        x if x == 1 => { // EI_CLASSIFIER_RESIZE_FIT_SHORTEST
             let factor = (input_width as f32 / w as f32).min(input_height as f32 / h as f32);
             let resize_w = (w as f32 * factor).round() as u32;
             let resize_h = (h as f32 * factor).round() as u32;
@@ -56,7 +56,7 @@ fn resize_and_crop(
             )
             .to_rgb8()
         }
-        x if x == model_metadata::EI_CLASSIFIER_RESIZE_FIT_LONGEST => {
+        x if x == 2 => { // EI_CLASSIFIER_RESIZE_FIT_LONGEST
             let factor = (input_width as f32 / w as f32).max(input_height as f32 / h as f32);
             let resize_w = (w as f32 * factor).round() as u32;
             let resize_h = (h as f32 * factor).round() as u32;
@@ -89,39 +89,97 @@ fn resize_and_crop(
     }
 }
 
+/// Print classification results from raw C struct
+fn print_classification_results(result: &ei_impulse_result_t, label_count: u16) {
+    if label_count > 0 {
+        println!("Classification results:");
+        // The classification array is fixed size with only 1 element
+        // In a real implementation, you'd need to get the actual results differently
+        let classification = &result.classification[0];
+        if !classification.label.is_null() {
+            let label = unsafe {
+                std::ffi::CStr::from_ptr(classification.label)
+                    .to_string_lossy()
+                    .to_string()
+            };
+            println!("  {}: {:.3}", label, classification.value);
+        } else {
+            println!("  No classification result available");
+        }
+
+        // Note: For multiple labels, you'd typically need to access the results
+        // through a different mechanism or pointer provided by the C library
+        if label_count > 1 {
+            println!("  Note: Model has {} labels but only first result shown", label_count);
+        }
+    }
+}
+
+/// Print bounding box results from raw C struct
+fn print_bounding_boxes(result: &ei_impulse_result_t) {
+    if result.bounding_boxes_count > 0 && !result.bounding_boxes.is_null() {
+        println!("Object detection results:");
+        let boxes = unsafe {
+            std::slice::from_raw_parts(
+                result.bounding_boxes,
+                result.bounding_boxes_count as usize,
+            )
+        };
+        for (i, bb) in boxes.iter().enumerate() {
+            if !bb.label.is_null() {
+                let label = unsafe {
+                    std::ffi::CStr::from_ptr(bb.label)
+                        .to_string_lossy()
+                        .to_string()
+                };
+                println!(
+                    "  Box {}: {} at ({}, {}) {}x{} with confidence {:.3}",
+                    i, label, bb.x, bb.y, bb.width, bb.height, bb.value
+                );
+            }
+        }
+    }
+}
+
+/// Print timing information from raw C struct
+fn print_timing(timing: &ei_impulse_result_timing_t) {
+    println!("Timing:");
+    println!("  DSP: {} ms ({} μs)", timing.dsp, timing.dsp_us);
+    println!("  Classification: {} ms ({} μs)", timing.classification, timing.classification_us);
+    if timing.anomaly > 0 {
+        println!("  Anomaly: {} ms ({} μs)", timing.anomaly, timing.anomaly_us);
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
-    // Get and print all model metadata at once
-    let meta = ModelMetadata::get();
-    println!("{}", meta);
+    // For this example, we'll use hardcoded values since we don't have model metadata
+    // In a real application, you'd get these from the model metadata
+    let input_width = 96;  // Example value
+    let input_height = 96; // Example value
+    let resize_mode = 0;   // EI_CLASSIFIER_RESIZE_SQUASH
+    let label_count = 2;   // Example value
+
+    println!("Using input dimensions: {}x{}", input_width, input_height);
 
     // Load and process the image
     let img = image::open(&args.image)?;
     let (width, height) = img.dimensions();
     println!("Loaded image: {} ({}x{})", args.image, width, height);
 
-    // Resize and crop using model metadata
-    let (iw, ih) = (meta.input_width as u32, meta.input_height as u32);
-    let rgb = resize_and_crop(&img, iw, ih, model_metadata::EI_CLASSIFIER_RESIZE_MODE);
-    println!("Processed image to {}x{} RGB", iw, ih);
+    // Resize and crop using hardcoded dimensions
+    let rgb = resize_and_crop(&img, input_width, input_height, resize_mode);
+    println!("Processed image to {}x{} RGB", input_width, input_height);
 
     // Pack each pixel as (r << 16) + (g << 8) + b, as f32
-    let mut features = Vec::with_capacity((iw * ih) as usize);
+    let mut features = Vec::with_capacity((input_width * input_height) as usize);
     for pixel in rgb.pixels() {
         let [r, g, b] = pixel.0;
         let packed = ((r as u32) << 16) + ((g as u32) << 8) + (b as u32);
         features.push(packed as f32);
     }
-    if features.len() != meta.input_width * meta.input_height {
-        eprintln!(
-            "Warning: feature count is {} but expected {} ({}x{})",
-            features.len(),
-            meta.input_width * meta.input_height,
-            meta.input_width,
-            meta.input_height
-        );
-    }
+
     if args.debug {
         let min = features.iter().fold(f32::INFINITY, |a, &b| a.min(b));
         let max = features.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
@@ -136,55 +194,50 @@ fn main() -> Result<(), Box<dyn Error>> {
         );
     }
 
-    // Create a signal from the features
-    let signal = Signal::from_raw_data(&features)?;
+    // Initialize the classifier using raw C function
+    unsafe {
+        ei_ffi_run_classifier_init();
+    }
 
-    // Initialize the classifier
-    let mut classifier = EdgeImpulseClassifier::new();
-    classifier.init()?;
+    // Create signal from buffer using the FFI function
+    let mut signal = ei_signal_t::default();
+    let result_code = unsafe {
+        ei_ffi_signal_from_buffer(
+            features.as_ptr(),
+            features.len(),
+            &mut signal,
+        )
+    };
 
-    // Run inference with the real signal
-    let result = classifier.run_classifier(&signal, args.debug);
+    if result_code != EI_IMPULSE_ERROR::EI_IMPULSE_OK {
+        eprintln!("Failed to create signal from buffer: {:?}", result_code);
+        return Err("Failed to create signal".into());
+    }
 
-    match result {
-        Ok(inference) => {
+    // Create result struct
+    let mut result = ei_impulse_result_t::default();
+
+    // Run inference using raw C function
+    let debug_int = if args.debug { 1 } else { 0 };
+    let result_code = unsafe {
+        ei_ffi_run_classifier(&mut signal, &mut result, debug_int)
+    };
+
+    match result_code {
+        EI_IMPULSE_ERROR::EI_IMPULSE_OK => {
             println!("Inference ran successfully!");
-            // Print classification results if present
-            if !meta.has_object_detection && meta.label_count > 0 {
-                let results = inference.classifications(meta.label_count);
-                if results.is_empty() {
-                    println!("No classification results.");
-                } else {
-                    println!("Classification results:");
-                    for c in results {
-                        println!("  {}", c);
-                    }
-                }
-            }
+
+            // Print classification results
+            print_classification_results(&result, label_count);
+
             // Print bounding boxes for object detection
-            if meta.has_object_detection {
-                let bbs = inference.bounding_boxes();
-                if bbs.is_empty() {
-                    println!("No bounding boxes found.");
-                } else {
-                    println!("Object detection results:");
-                    for bb in bbs {
-                        println!("  {}", bb);
-                    }
-                }
-            }
+            print_bounding_boxes(&result);
+
             // Print timing info
-            let timing = inference.timing();
-            println!("{}", timing);
+            print_timing(&result.timing);
         }
-        Err(e) => {
-            // Print both the error and its integer value
-            let code = e as i32;
-            eprintln!(
-                "Error running inference: {} (error code: {:?}, value: {})",
-                e, e, code
-            );
-            println!("Raw error code from C++: {}", code);
+        error_code => {
+            eprintln!("Error running inference: {:?} (code: {})", error_code, error_code as i32);
             println!("This might be expected if:");
             println!("1. No model is loaded/initialized");
             println!("2. The signal format doesn't match what the model expects");
@@ -192,6 +245,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    classifier.deinit()?;
+    // Clean up using raw C function
+    unsafe {
+        ei_ffi_run_classifier_deinit();
+    }
+
     Ok(())
 }
