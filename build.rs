@@ -278,34 +278,37 @@ fn extract_and_write_model_metadata() {
 }
 
 fn main() {
-    // Force rerun on every build to ensure dummy files are always copied
+    // Force rerun on every build
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=src/bindings_dummy.rs");
-    println!("cargo:rerun-if-changed=src/model_metadata_dummy.rs");
 
     // Get the current working directory and construct absolute paths
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let manifest_path = PathBuf::from(manifest_dir);
 
-    println!("cargo:warning=Manifest directory: {:?}", manifest_path);
+    println!("cargo:info=Manifest directory: {:?}", manifest_path);
 
     let model_header = manifest_path.join("model/model-parameters/model_metadata.h");
     let out_bindings = manifest_path.join("src/bindings.rs");
-    let out_metadata = manifest_path.join("src/model_metadata.rs");
-    let bindings_dummy = manifest_path.join("src/bindings_dummy.rs");
-    let metadata_dummy = manifest_path.join("src/model_metadata_dummy.rs");
+    let _out_metadata = manifest_path.join("src/model_metadata.rs");
 
-    // Check if we have a valid model structure
-    let wrapper_header = manifest_path.join("model/edge_impulse_wrapper.h");
-    let cmake_lists = manifest_path.join("model/CMakeLists.txt");
+    // Check if we have a valid model structure - only look for actual model components
     let sdk_dir = manifest_path.join("model/edge-impulse-sdk");
+    let model_parameters_dir = manifest_path.join("model/model-parameters");
+    let tflite_model_dir = manifest_path.join("model/tflite-model");
 
-    let has_valid_model = wrapper_header.exists() && cmake_lists.exists() && sdk_dir.exists();
+    // Check if we have the essential model components
+    let has_valid_model = sdk_dir.exists() && model_parameters_dir.exists() && tflite_model_dir.exists();
+
+    // If we have a valid model, copy the FFI glue files to set up the build environment
+    if has_valid_model {
+        build_helpers::copy_ffi_glue("model");
+    }
 
     if has_valid_model {
-        println!("cargo:warning=Valid Edge Impulse model found, generating real bindings...");
+        println!("cargo:info=Valid Edge Impulse model found, generating real bindings...");
 
         // Generate real bindings using bindgen
+        let wrapper_header = manifest_path.join("model/edge_impulse_wrapper.h");
         let bindings = bindgen::Builder::default()
             .header(wrapper_header.to_str().unwrap())
             .clang_arg("-xc++")
@@ -351,7 +354,7 @@ fn main() {
         // Add allow attributes to suppress warnings in generated bindings
         let bindings_content = std::fs::read_to_string(&out_bindings).expect("Failed to read generated bindings");
         let modified_content = format!(
-            "#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals, unpredictable_function_pointer_comparisons)]\n{}",
+            "#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]\n{}",
             bindings_content
         );
         std::fs::write(&out_bindings, modified_content).expect("Failed to write modified bindings");
@@ -360,45 +363,12 @@ fn main() {
         if model_header.exists() {
             extract_and_write_model_metadata();
         } else {
-            println!("cargo:warning=Model metadata header not found, copying dummy metadata");
-            fs::copy(&metadata_dummy, &out_metadata).expect("Failed to copy dummy model metadata");
+            println!("cargo:warning=Model metadata header not found, skipping metadata generation");
         }
 
-        println!("cargo:warning=Real bindings generated successfully!");
+        println!("cargo:info=Real bindings generated successfully!");
     } else {
-        // No valid model found, use dummy files
-        println!("cargo:warning=No valid Edge Impulse model found, using dummy bindings...");
-        println!("cargo:warning=Copying from {:?} to {:?}", bindings_dummy, out_bindings);
-        println!("cargo:warning=Copying from {:?} to {:?}", metadata_dummy, out_metadata);
-
-        // Check if source files exist
-        if !bindings_dummy.exists() {
-            panic!("Dummy bindings file not found at {:?}", bindings_dummy);
-        }
-        if !metadata_dummy.exists() {
-            panic!("Dummy metadata file not found at {:?}", metadata_dummy);
-        }
-
-        // Simple direct file copy - no reading/writing, just copy
-        fs::copy(&bindings_dummy, &out_bindings).expect("Failed to copy dummy bindings");
-        fs::copy(&metadata_dummy, &out_metadata).expect("Failed to copy dummy model metadata");
-        println!("cargo:warning=Successfully copied dummy files");
-        println!("cargo:warning=No model found, using dummy bindings and dummy model metadata.");
-        println!("cargo:warning=Dummy files copied successfully!");
-
-        // Also ensure the dummy static library is named as expected for the linker
-        let dummy_lib = manifest_path.join("model/build/libedge-impulse-sdk-dummy.a");
-        let expected_lib = manifest_path.join("model/build/libedge-impulse-sdk.a");
-        if dummy_lib.exists() {
-            // Copy or overwrite the expected library name
-            if let Err(e) = fs::copy(&dummy_lib, &expected_lib) {
-                println!("cargo:warning=Failed to copy dummy static library: {}", e);
-            } else {
-                println!("cargo:warning=Copied dummy static library to expected name");
-            }
-        } else {
-            println!("cargo:warning=Dummy static library not found at {:?}", dummy_lib);
-        }
+        println!("cargo:warning=No valid Edge Impulse model found, skipping bindings and metadata generation.");
     }
 
     // Check if we should clean the model folder
@@ -494,43 +464,43 @@ fn main() {
     if use_full_tflite {
         cmake_args.push("-DEI_CLASSIFIER_USE_FULL_TFLITE=1".to_string());
         cmake_args.push(format!("-DTARGET_PLATFORM={}", target_platform));
-        println!("cargo:warning=Building with full TensorFlow Lite for platform: {}", target_platform);
+        println!("cargo:info=Building with full TensorFlow Lite for platform: {}", target_platform);
     } else {
-        println!("cargo:warning=Building with TensorFlow Lite Micro");
+        println!("cargo:info=Building with TensorFlow Lite Micro");
     }
 
     // Pass additional backend/accelerator flags
     if use_tvm {
         cmake_args.push("-DUSE_TVM=1".to_string());
-        println!("cargo:warning=Building with Apache TVM support");
+        println!("cargo:info=Building with Apache TVM support");
     }
     if use_onnx {
         cmake_args.push("-DUSE_ONNX=1".to_string());
-        println!("cargo:warning=Building with ONNX Runtime support");
+        println!("cargo:info=Building with ONNX Runtime support");
     }
     if use_qualcomm_qnn {
         cmake_args.push("-DUSE_QUALCOMM_QNN=1".to_string());
-        println!("cargo:warning=Building with Qualcomm QNN support");
+        println!("cargo:info=Building with Qualcomm QNN support");
     }
     if use_ethos {
         cmake_args.push("-DUSE_ETHOS=1".to_string());
-        println!("cargo:warning=Building with ARM Ethos support");
+        println!("cargo:info=Building with ARM Ethos support");
     }
     if use_akida {
         cmake_args.push("-DUSE_AKIDA=1".to_string());
-        println!("cargo:warning=Building with BrainChip Akida support");
+        println!("cargo:info=Building with BrainChip Akida support");
     }
     if use_memryx {
         cmake_args.push("-DUSE_MEMRYX=1".to_string());
-        println!("cargo:warning=Building with MemryX support");
+        println!("cargo:info=Building with MemryX support");
     }
     if link_tflite_flex {
         cmake_args.push("-DLINK_TFLITE_FLEX_LIBRARY=1".to_string());
-        println!("cargo:warning=Linking TensorFlow Lite Flex library");
+        println!("cargo:info=Linking TensorFlow Lite Flex library");
     }
     if use_memryx_software {
         cmake_args.push("-DEI_CLASSIFIER_USE_MEMRYX_SOFTWARE=1".to_string());
-        println!("cargo:warning=Using MemryX software mode");
+        println!("cargo:info=Using MemryX software mode");
     }
 
     // Pass TensorRT version for Jetson builds
@@ -546,7 +516,7 @@ fn main() {
         // Check if the library already exists
         let lib_path = build_dir.join("libedge-impulse-sdk.a");
         if !lib_path.exists() {
-            println!("cargo:warning=Library not found, building C++ library...");
+            println!("cargo:info=Library not found, building C++ library...");
 
             let cmake_status = Command::new("cmake")
                 .args(&cmake_args)
@@ -570,7 +540,7 @@ fn main() {
                 panic!("Make build failed");
             }
         } else {
-            println!("cargo:warning=Library already exists, skipping build");
+            println!("cargo:info=Library already exists, skipping build");
         }
 
         // Diagnostic: print contents of build directory
@@ -584,8 +554,8 @@ fn main() {
 
     // If we have a valid model, always set up library linking (regardless of whether we built it or not)
     if has_valid_model {
-        println!("cargo:warning=Setting up library linking for valid model");
-        println!("cargo:warning=Build directory: {}", build_dir.display());
+        println!("cargo:info=Setting up library linking for valid model");
+        println!("cargo:info=Build directory: {}", build_dir.display());
 
         // Tell Cargo where to find the built library - use absolute path
         let absolute_build_dir = build_dir.canonicalize().expect("Failed to get absolute path");
@@ -608,12 +578,15 @@ fn main() {
         println!("cargo:rerun-if-changed={}/model-parameters", model_dir);
         println!("cargo:rerun-if-changed={}/tflite-model", model_dir);
 
-        println!("cargo:warning=Library linking setup complete");
+        println!("cargo:info=Library linking setup complete");
     } else {
-        println!("cargo:warning=No valid model found, skipping library linking");
+        println!("cargo:info=No valid model found, skipping library linking");
     }
 
-    extract_and_write_model_metadata();
+    // Only extract model metadata if we have a valid model
+    if has_valid_model {
+        extract_and_write_model_metadata();
+    }
 }
 
 
