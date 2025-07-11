@@ -7,6 +7,8 @@ use std::time::Duration;
 
 // Add serde imports for JSON handling
 use serde::Deserialize;
+use regex;
+use std::path::Path;
 
 // JSON response structures for Edge Impulse API
 #[derive(Debug, Deserialize)]
@@ -464,7 +466,7 @@ fn fix_header_file_path(build_dir: &PathBuf) {
         let abs_path_str = abs_path.to_str().expect("Non-UTF8 path");
         // Patch any INCBIN macro to use the absolute path
         let fixed_content = content.replace(
-            "INCBIN(incbin_tflite_learn_8, \"tflite_learn_8.tflite\");",
+            "INCBIN(incbin_tflite_learn_8, \"tflite-model/tflite_learn_8.tflite\");",
             &format!("INCBIN(incbin_tflite_learn_8, \"{}\");", abs_path_str)
         );
         std::fs::write(&header_file, fixed_content).expect("Failed to write fixed header file");
@@ -692,15 +694,42 @@ fn extract_and_write_model_metadata() {
     fs::write(out_path, out).expect("Failed to write model_metadata.rs");
 }
 
+fn patch_model_for_full_tflite(model_dir: &Path, use_full_tflite: bool) {
+    if !use_full_tflite {
+        return;
+    }
+    // Patch ei_run_classifier.h to always include tflite_full.h when USE_FULL_TFLITE=1
+    let classifier_header = model_dir.join("edge-impulse-sdk/classifier/ei_run_classifier.h");
+    if let Ok(content) = std::fs::read_to_string(&classifier_header) {
+        let patched = regex::Regex::new(r#"(?s)(#if \(EI_CLASSIFIER_INFERENCING_ENGINE == EI_CLASSIFIER_TFLITE\) && \(EI_CLASSIFIER_COMPILED != 1\))(.+?)#elif EI_CLASSIFIER_COMPILED == 1"#)
+            .unwrap()
+            .replace(&content, |caps: &regex::Captures| {
+                format!(
+                    "{}\n#if defined(EI_CLASSIFIER_USE_FULL_TFLITE)\n#include \"edge-impulse-sdk/classifier/inferencing_engines/tflite_full.h\"\n#else\n#include \"edge-impulse-sdk/classifier/inferencing_engines/tflite_micro.h\"\n#endif\n#elif EI_CLASSIFIER_COMPILED == 1",
+                    &caps[1]
+                )
+            });
+        std::fs::write(&classifier_header, patched.as_bytes()).expect("Failed to patch ei_run_classifier.h");
+        println!("cargo:info=Patched ei_run_classifier.h for full TFLite");
+    }
+    // Patch model/CMakeLists.txt to filter out micro sources
+    let cmake_lists = model_dir.join("CMakeLists.txt");
+    if let Ok(content) = std::fs::read_to_string(&cmake_lists) {
+        let patched = regex::Regex::new(r#"(# Find all model and SDK source files\nRECURSIVE_FIND_FILE_APPEND\(MODEL_SOURCE \"tflite-model\" \"\*\.cpp\"\)\nRECURSIVE_FIND_FILE_APPEND\(MODEL_SOURCE \"model-parameters\" \"\*\.cpp\"\)\nRECURSIVE_FIND_FILE_APPEND\(MODEL_SOURCE \"edge-impulse-sdk\" \"\*\.cpp\"\)\nRECURSIVE_FIND_FILE_APPEND\(MODEL_SOURCE \"edge-impulse-sdk/third_party\" \"\*\.cpp\"\))"#)
+            .unwrap()
+            .replace(&content, |_caps: &regex::Captures| {
+                format!(
+                    "# Find all model and SDK source files\nRECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE \"tflite-model\" \"*.cpp\")\nRECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE \"model-parameters\" \"*.cpp\")\n\n# Conditionally include Edge Impulse SDK source files\nif(EI_CLASSIFIER_USE_FULL_TFLITE)\n    RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE \"edge-impulse-sdk\" \"*.cpp\")\n    list(FILTER MODEL_SOURCE EXCLUDE REGEX \".*tensorflow/lite/micro.*\")\n    list(FILTER MODEL_SOURCE EXCLUDE REGEX \".*micro_interpreter.*\")\n    list(FILTER MODEL_SOURCE EXCLUDE REGEX \".*all_ops_resolver.*\")\nelse()\n    RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE \"edge-impulse-sdk\" \"*.cpp\")\nendif()\n\nRECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE \"edge-impulse-sdk/third_party\" \"*.cpp\")",
+                )
+            });
+        std::fs::write(&cmake_lists, patched.as_bytes()).expect("Failed to patch model/CMakeLists.txt");
+        println!("cargo:info=Patched model/CMakeLists.txt for full TFLite");
+    }
+}
+
 fn main() {
     // Force rerun on every build
     println!("cargo:rerun-if-changed=build.rs");
-
-                        println!("cargo:warning=Build script starting...");
-
-    // Debug: Check environment variables
-    println!("cargo:warning=USE_FULL_TFLITE: {:?}", env::var("USE_FULL_TFLITE"));
-    println!("cargo:warning=EI_ENGINE: {:?}", env::var("EI_ENGINE"));
 
     // Get the current working directory and construct absolute paths
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
@@ -1088,6 +1117,27 @@ fn main() {
         // Link against C++ standard library
         println!("cargo:rustc-link-lib=c++");
 
+        // Link against prebuilt TensorFlow Lite libraries when using full TensorFlow Lite
+        if use_full_tflite {
+            let tflite_lib_dir = format!("tflite/{}", target_platform);
+            println!("cargo:rustc-link-search=native={}", tflite_lib_dir);
+
+            // Link against prebuilt TensorFlow Lite and XNNPACK libraries in the correct order
+            // This matches the official Makefile: -ltensorflow-lite -lcpuinfo -lfarmhash -lfft2d_fftsg -lfft2d_fftsg2d -lruy -lXNNPACK -lpthreadpool
+            println!("cargo:rustc-link-lib=static=tensorflow-lite");
+            println!("cargo:rustc-link-lib=static=cpuinfo");
+            println!("cargo:rustc-link-lib=static=farmhash");
+            println!("cargo:rustc-link-lib=static=fft2d_fftsg");
+            println!("cargo:rustc-link-lib=static=fft2d_fftsg2d");
+            println!("cargo:rustc-link-lib=static=ruy");
+            println!("cargo:rustc-link-lib=static=XNNPACK");
+            println!("cargo:rustc-link-lib=static=pthreadpool");
+            println!("cargo:rustc-link-lib=static=flatbuffers");
+
+            // Add system libraries that TensorFlow Lite depends on
+            println!("cargo:rustc-link-lib=dl");
+        }
+
         // Re-run if any of the source files change
         println!("cargo:rerun-if-changed={}/CMakeLists.txt", model_dir);
         println!(
@@ -1111,4 +1161,7 @@ fn main() {
         // Emit cargo:root for dependents
         println!("cargo:root={}", build_dir.display());
     }
+
+    // Call this function after model download/extract and before C++ build
+    patch_model_for_full_tflite(&manifest_path.join("model"), use_full_tflite);
 }

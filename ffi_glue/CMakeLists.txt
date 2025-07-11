@@ -7,8 +7,12 @@ add_definitions(-DEI_C_LINKAGE=1)
 
 # Enable XNNPACK for better performance when using full TensorFlow Lite
 if(EI_CLASSIFIER_USE_FULL_TFLITE)
+    add_definitions(-DEI_CLASSIFIER_USE_FULL_TFLITE=1)
     add_definitions(-DTFLITE_KERNEL_USE_XNNPACK=1)
     add_definitions(-DTFLITE_USE_XNNPACK=1)
+    add_definitions(-DEI_CLASSIFIER_ENABLE_DETECTION_POSTPROCESS_OP=1)
+    # Add the same defines as the official Makefile
+    add_definitions(-DDISABLEFLOAT16)
 endif()
 
 # Include Edge Impulse SDK utilities
@@ -25,6 +29,8 @@ if(EI_CLASSIFIER_USE_FULL_TFLITE)
     # When using full TensorFlow Lite, we link against prebuilt libraries
     # Only include Edge Impulse specific TensorFlow files
     RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE "edge-impulse-sdk/tensorflow/lite/micro/kernels" "detection_postprocess.cc")
+    # Include custom kernels as per the official Makefile
+    RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE "edge-impulse-sdk/tensorflow/lite/kernels/custom" "*.cc")
 else()
     # When using TensorFlow Lite Micro, include all TensorFlow source files
     RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE "edge-impulse-sdk/tensorflow" "*.cc")
@@ -34,6 +40,14 @@ endif()
 
 list(APPEND MODEL_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/edge_impulse_c_api.cpp")
 list(APPEND MODEL_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/tflite_detection_postprocess_wrapper.cc")
+
+# Add tflite_full implementation when using full TensorFlow Lite
+if(EI_CLASSIFIER_USE_FULL_TFLITE)
+    set(TFLITE_FULL_IMPL_FILE "${CMAKE_CURRENT_SOURCE_DIR}/../ffi_glue/tflite_full_impl.cpp")
+    if(EXISTS ${TFLITE_FULL_IMPL_FILE})
+        list(APPEND MODEL_SOURCE ${TFLITE_FULL_IMPL_FILE})
+    endif()
+endif()
 
 # Create a static library instead of an executable
 add_library(edge-impulse-sdk STATIC ${MODEL_SOURCE})
@@ -63,6 +77,8 @@ target_include_directories(edge-impulse-sdk PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}
     .
     ${CMAKE_CURRENT_BINARY_DIR}/tflite-model
+    # Add tensorflow-lite include directory for full TFLite
+    ${CMAKE_CURRENT_SOURCE_DIR}/../tensorflow-lite
 )
 target_compile_definitions(edge-impulse-sdk PUBLIC INCBIN_SILENCE_BITCODE_WARNING)
 
@@ -104,16 +120,23 @@ if(EI_CLASSIFIER_USE_FULL_TFLITE)
 
     message(STATUS "Linking against TensorFlow Lite libraries in: ${TFLITE_LIB_DIR}")
 
-    # Link against prebuilt TensorFlow Lite and XNNPACK libraries
+    # Add linker flags to match the official Makefile
+    target_link_options(edge-impulse-sdk PRIVATE
+        -Wl,--no-as-needed
+        -ldl
+    )
+
+    # Link against prebuilt TensorFlow Lite and XNNPACK libraries in the correct order
+    # This matches the official Makefile: -ltensorflow-lite -lcpuinfo -lfarmhash -lfft2d_fftsg -lfft2d_fftsg2d -lruy -lXNNPACK -lpthreadpool
     target_link_libraries(edge-impulse-sdk PRIVATE
         ${TFLITE_LIB_DIR}/libtensorflow-lite.a
-        ${TFLITE_LIB_DIR}/libXNNPACK.a
         ${TFLITE_LIB_DIR}/libcpuinfo.a
         ${TFLITE_LIB_DIR}/libfarmhash.a
         ${TFLITE_LIB_DIR}/libfft2d_fftsg.a
         ${TFLITE_LIB_DIR}/libfft2d_fftsg2d.a
-        ${TFLITE_LIB_DIR}/libflatbuffers.a
-        ${TFLITE_LIB_DIR}/libpthreadpool.a
         ${TFLITE_LIB_DIR}/libruy.a
+        ${TFLITE_LIB_DIR}/libXNNPACK.a
+        ${TFLITE_LIB_DIR}/libpthreadpool.a
+        ${TFLITE_LIB_DIR}/libflatbuffers.a
     )
 endif()
