@@ -50,3 +50,9 @@ Makefile
 # Backup files
 *.bak
 *.backup
+
+# Allow TensorFlow Lite prebuilt libraries
+!tflite/**/*.a
+!tflite/**/*.so
+!tflite/**/*.dylib
+!tflite/**/*.dll
