@@ -23,6 +23,17 @@ list(APPEND MODEL_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/edge-impulse-sdk/tensorflo
 # Create a static library instead of an executable
 add_library(edge-impulse-sdk STATIC ${MODEL_SOURCE})
 
+# Ensure Release builds use high optimization
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG -flto -ffast-math -funroll-loops")
+set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -DNDEBUG -flto -ffast-math -funroll-loops")
+
+# Enable Link Time Optimization for Release builds
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+
 # Set include directories for the library
 target_include_directories(edge-impulse-sdk PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -43,6 +54,7 @@ set_target_properties(edge-impulse-sdk PROPERTIES
 
 # Add compiler flags for better compatibility
 target_compile_options(edge-impulse-sdk PRIVATE
+    $<$<CONFIG:Release>:-O3 -DNDEBUG -flto -ffast-math -funroll-loops>
     -fPIC
     -Wall
     -Wextra

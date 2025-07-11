@@ -741,6 +741,10 @@ fn main() {
             .clang_arg("-std=c++17")
             .clang_arg("-Imodel")
             .clang_arg("-Imodel/edge-impulse-sdk")
+            .clang_arg("-O3")
+            .clang_arg("-flto")
+            .clang_arg("-ffast-math")
+            .clang_arg("-funroll-loops")
             .rustified_enum(".*")
             .default_enum_style(bindgen::EnumVariation::Rust {
                 non_exhaustive: false,

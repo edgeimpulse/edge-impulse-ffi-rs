@@ -14,6 +14,11 @@ links = "edge-impulse-sdk"
 name = "edge_impulse_ffi_rs"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
 [dependencies]
 libc = "0.2"
 
