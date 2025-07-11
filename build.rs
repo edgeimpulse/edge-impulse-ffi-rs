@@ -8,8 +8,6 @@ use std::time::Duration;
 // Add serde imports for JSON handling
 use serde::Deserialize;
 
-mod build_helpers;
-
 // JSON response structures for Edge Impulse API
 #[derive(Debug, Deserialize)]
 struct ProjectResponse {
@@ -48,6 +46,23 @@ struct JobStatus {
     finished: Option<String>, // Can be a timestamp string when finished
     #[serde(rename = "finishedSuccessful")]
     finished_successful: Option<bool>,
+}
+
+/// Copy FFI glue files from ffi_glue/ to the selected model folder (e.g., cpp/ or cpp2/)
+fn copy_ffi_glue(model_dir: &str) {
+    let files = [
+        "edge_impulse_c_api.cpp",
+        "edge_impulse_wrapper.h",
+        "CMakeLists.txt",
+        "tflite_detection_postprocess_wrapper.cc",
+    ];
+    for file in &files {
+        let src = format!("ffi_glue/{}", file);
+        let dst = format!("{}/{}", model_dir, file);
+        if std::path::Path::new(&src).exists() {
+            fs::copy(&src, &dst).expect(&format!("Failed to copy {} to {}", src, dst));
+        }
+    }
 }
 
 /// Read Edge Impulse project configuration from environment variables
@@ -712,7 +727,7 @@ fn main() {
 
     // If we have a valid model, copy the FFI glue files to set up the build environment
     if has_valid_model {
-        build_helpers::copy_ffi_glue("model");
+        copy_ffi_glue("model");
     }
 
     if has_valid_model {
@@ -799,7 +814,7 @@ fn main() {
 
     // If we have a valid model, we need to build the C++ library
     if has_valid_model {
-        build_helpers::copy_ffi_glue(model_dir);
+        copy_ffi_glue(model_dir);
 
         // Create build directory if it doesn't exist
         std::fs::create_dir_all(&build_dir).expect("Failed to create build directory");
