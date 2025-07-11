@@ -847,7 +847,7 @@ fn main() {
         let bindings_content =
             std::fs::read_to_string(&out_bindings).expect("Failed to read generated bindings");
         let modified_content = format!(
-            "#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals, unpredictable_function_pointer_comparisons)]\n{}",
+            "#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]\n{}",
             bindings_content
         );
         std::fs::write(&out_bindings, modified_content).expect("Failed to write modified bindings");
