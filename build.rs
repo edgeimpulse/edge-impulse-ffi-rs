@@ -728,6 +728,9 @@ fn patch_model_for_full_tflite(model_dir: &Path, use_full_tflite: bool) {
 }
 
 fn main() {
+    println!("cargo:warning=DEBUG: Build script starting...");
+    println!("cargo:warning=DEBUG: Current directory: {:?}", std::env::current_dir().unwrap());
+
     // Force rerun on every build
     println!("cargo:rerun-if-changed=build.rs");
 
@@ -1120,22 +1123,36 @@ fn main() {
         // Link against prebuilt TensorFlow Lite libraries when using full TensorFlow Lite
         if use_full_tflite {
             let tflite_lib_dir = format!("tflite/{}", target_platform);
-            println!("cargo:rustc-link-search=native={}", tflite_lib_dir);
+            let tflite_lib_path = Path::new(&tflite_lib_dir);
+            let cwd = std::env::current_dir().unwrap();
+            println!("cargo:warning=DEBUG: current_dir: {}", cwd.display());
+            println!("cargo:warning=DEBUG: tflite_lib_dir: {}", tflite_lib_dir);
+            println!("cargo:warning=DEBUG: tflite_lib_path exists: {}", tflite_lib_path.exists());
+            println!("cargo:warning=DEBUG: tflite_lib_path absolute: {}", tflite_lib_path.canonicalize().map(|p| p.display().to_string()).unwrap_or_else(|_| "(not found)".to_string()));
+            // Check if TensorFlow Lite libraries exist (they might not when building from git)
+            if tflite_lib_path.exists() {
+                println!("cargo:rustc-link-search=native={}", tflite_lib_dir);
 
-            // Link against prebuilt TensorFlow Lite and XNNPACK libraries in the correct order
-            // This matches the official Makefile: -ltensorflow-lite -lcpuinfo -lfarmhash -lfft2d_fftsg -lfft2d_fftsg2d -lruy -lXNNPACK -lpthreadpool
-            println!("cargo:rustc-link-lib=static=tensorflow-lite");
-            println!("cargo:rustc-link-lib=static=cpuinfo");
-            println!("cargo:rustc-link-lib=static=farmhash");
-            println!("cargo:rustc-link-lib=static=fft2d_fftsg");
-            println!("cargo:rustc-link-lib=static=fft2d_fftsg2d");
-            println!("cargo:rustc-link-lib=static=ruy");
-            println!("cargo:rustc-link-lib=static=XNNPACK");
-            println!("cargo:rustc-link-lib=static=pthreadpool");
-            println!("cargo:rustc-link-lib=static=flatbuffers");
+                // Link against prebuilt TensorFlow Lite and XNNPACK libraries in the correct order
+                // This matches the official Makefile: -ltensorflow-lite -lcpuinfo -lfarmhash -lfft2d_fftsg -lfft2d_fftsg2d -lruy -lXNNPACK -lpthreadpool
+                println!("cargo:rustc-link-lib=static=tensorflow-lite");
+                println!("cargo:rustc-link-lib=static=cpuinfo");
+                println!("cargo:rustc-link-lib=static=farmhash");
+                println!("cargo:rustc-link-lib=static=fft2d_fftsg");
+                println!("cargo:rustc-link-lib=static=fft2d_fftsg2d");
+                println!("cargo:rustc-link-lib=static=ruy");
+                println!("cargo:rustc-link-lib=static=XNNPACK");
+                println!("cargo:rustc-link-lib=static=pthreadpool");
+                println!("cargo:rustc-link-lib=static=flatbuffers");
 
-            // Add system libraries that TensorFlow Lite depends on
-            println!("cargo:rustc-link-lib=dl");
+                // Add system libraries that TensorFlow Lite depends on
+                println!("cargo:rustc-link-lib=dl");
+
+                println!("cargo:info=Linked against prebuilt TensorFlow Lite libraries");
+            } else {
+                println!("cargo:warning=TensorFlow Lite libraries not found at {}, skipping prebuilt library linking", tflite_lib_dir);
+                println!("cargo:warning=This is expected when building from git. The CMake build will handle TensorFlow Lite linking.");
+            }
         }
 
         // Re-run if any of the source files change
