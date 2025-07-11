@@ -36,6 +36,19 @@ This will:
 
 **Security**: Never commit your API key to version control. Environment variables are the recommended approach for managing secrets.
 
+#### Engine Selection
+By default, the model is built with the `tflite-eon` engine (optimized for microcontrollers). To use the standard `tflite` engine (compatible with full TensorFlow Lite), set the `EI_ENGINE` environment variable:
+
+```sh
+# Use standard TensorFlow Lite (compatible with full TFLite builds)
+EI_ENGINE=tflite cargo build
+
+# Use EON-optimized TensorFlow Lite (default, for microcontrollers)
+EI_ENGINE=tflite-eon cargo build
+# or simply
+cargo build
+```
+
 ## Building
 
 This project supports both TensorFlow Lite Micro and full TensorFlow Lite builds.
@@ -167,12 +180,36 @@ cargo run --example ffi_image_infer -- --image <path_to_image>
 ./target/debug/examples/ffi_image_infer --image <path_to_image>
 ```
 
-## Cleaning the Model Folder
+## Using as a Dependency
 
-To clean the `model/` folder and remove all generated files (keeping only `README.md` and `.gitignore`):
+When using this crate as a dependency in another Rust project, you must set the appropriate environment variables before building:
+
+```toml
+[dependencies]
+edge-impulse-ffi-rs = { path = "../edge-impulse-ffi-rs" }
+```
+
+Then build with the required environment variables:
 
 ```sh
-CLEAN_MODEL=1 cargo build && cargo clean
+# For full TensorFlow Lite on Apple Silicon
+TARGET_MAC_ARM64=1 USE_FULL_TFLITE=1 cargo build
+
+# For full TensorFlow Lite on Linux x86_64
+TARGET_LINUX_X86=1 USE_FULL_TFLITE=1 cargo build
+
+# For TensorFlow Lite Micro (default)
+cargo build
+```
+
+**Note**: The environment variables must be set in the shell session where you run `cargo build`. The build system will auto-detect your platform if no target variables are specified, but you must still set `USE_FULL_TFLITE=1` if you want full TensorFlow Lite instead of the micro version.
+
+## Cleaning the Model Folder
+
+To clean the `model/` folder and remove all generated files (keeping only `README.md` and `.gitignore`), use the provided script:
+
+```sh
+sh clean-model.sh
 ```
 
 This is useful when you want to:

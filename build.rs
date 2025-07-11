@@ -153,10 +153,14 @@ fn download_model_from_edge_impulse(project_id: &str, api_key: &str) -> bool {
         base_url, project_id, default_impulse_id
     );
 
+    // Determine engine type from environment variable, default to tflite-eon
+    let engine = env::var("EI_ENGINE").unwrap_or_else(|_| "tflite-eon".to_string());
+    println!("cargo:info=Using engine: {}", engine);
+
     let build_response: BuildJobResponse = match ureq::post(&build_url)
         .set("x-api-key", api_key)
         .set("content-type", "application/json")
-        .send_json(serde_json::json!({"engine": "tflite-eon"}))
+        .send_json(serde_json::json!({"engine": engine}))
     {
         Ok(response) => {
             if response.status() != 200 {
@@ -263,7 +267,7 @@ fn download_model_from_edge_impulse(project_id: &str, api_key: &str) -> bool {
     // Step 4: Download the model
     println!("cargo:info=Step 4/5: Downloading built model...");
     let download_url = format!(
-        "{}/{}/deployment/download?type=zip&engine=tflite-eon&impulse={}",
+        "{}/{}/deployment/download?type=zip&impulse={}",
         base_url, project_id, default_impulse_id
     );
 
@@ -448,6 +452,26 @@ fn clean_model_folder() {
     }
 
     println!("Model folder cleaned successfully. Only README.md and .gitignore remain.");
+}
+
+/// Fix the header file path in the generated header file to point to the correct TFLite file location
+fn fix_header_file_path(build_dir: &PathBuf) {
+    let header_file = build_dir.join("tflite-model/tflite_learn_8.h");
+    let tflite_file = build_dir.join("tflite-model/tflite_learn_8.tflite");
+    if header_file.exists() && tflite_file.exists() {
+        let content = std::fs::read_to_string(&header_file).expect("Failed to read header file");
+        let abs_path = tflite_file.canonicalize().expect("Failed to canonicalize tflite file path");
+        let abs_path_str = abs_path.to_str().expect("Non-UTF8 path");
+        // Patch any INCBIN macro to use the absolute path
+        let fixed_content = content.replace(
+            "INCBIN(incbin_tflite_learn_8, \"tflite_learn_8.tflite\");",
+            &format!("INCBIN(incbin_tflite_learn_8, \"{}\");", abs_path_str)
+        );
+        std::fs::write(&header_file, fixed_content).expect("Failed to write fixed header file");
+        println!("cargo:info=Fixed header file path in {}", header_file.display());
+    } else {
+        println!("cargo:warning=Header file or tflite file not found: {}", header_file.display());
+    }
 }
 
 fn extract_and_write_model_metadata() {
@@ -672,13 +696,15 @@ fn main() {
     // Force rerun on every build
     println!("cargo:rerun-if-changed=build.rs");
 
-    println!("cargo:info=Build script starting...");
+                        println!("cargo:warning=Build script starting...");
+
+    // Debug: Check environment variables
+    println!("cargo:warning=USE_FULL_TFLITE: {:?}", env::var("USE_FULL_TFLITE"));
+    println!("cargo:warning=EI_ENGINE: {:?}", env::var("EI_ENGINE"));
 
     // Get the current working directory and construct absolute paths
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let manifest_path = PathBuf::from(manifest_dir);
-
-    println!("cargo:info=Manifest directory: {:?}", manifest_path);
 
     let model_header = manifest_path.join("model/model-parameters/model_metadata.h");
     let out_bindings = manifest_path.join("src/bindings.rs");
@@ -762,6 +788,10 @@ fn main() {
             // Disable problematic traits for structs with function pointers
             .disable_name_namespacing()
             .disable_untagged_union()
+            // Ignore INCBIN macro to avoid processing .tflite files
+            .blocklist_item("INCBIN")
+            .blocklist_item("incbin_.*")
+            .blocklist_item("gincbin_.*")
             .allowlist_type("ei_impulse_handle_t")
             .allowlist_type("ei_impulse_result_t")
             .allowlist_type("ei_feature_t")
@@ -822,6 +852,43 @@ fn main() {
 
         // Create build directory if it doesn't exist
         std::fs::create_dir_all(&build_dir).expect("Failed to create build directory");
+
+                // --- Always copy TFLite file and header to build directory for INCBIN ---
+        let tflite_source = manifest_path.join("model/tflite-model/tflite_learn_8.tflite");
+        let header_source = manifest_path.join("model/tflite-model/tflite_learn_8.h");
+        let tflite_build_dir = build_dir.join("tflite-model");
+        let tflite_dest = tflite_build_dir.join("tflite_learn_8.tflite");
+        let header_dest = tflite_build_dir.join("tflite_learn_8.h");
+
+        if tflite_source.exists() && header_source.exists() {
+            std::fs::create_dir_all(&tflite_build_dir).expect("Failed to create tflite-model build dir");
+
+            // Copy TFLite file
+            if tflite_dest.exists() {
+                std::fs::remove_file(&tflite_dest).expect("Failed to remove old TFLite file");
+            }
+            std::fs::copy(&tflite_source, &tflite_dest).expect("Failed to copy TFLite file to build directory");
+
+            // Copy header file
+            if header_dest.exists() {
+                std::fs::remove_file(&header_dest).expect("Failed to remove old header file");
+            }
+            std::fs::copy(&header_source, &header_dest).expect("Failed to copy header file to build directory");
+
+            // Fix the header file path in the copied header file
+            fix_header_file_path(&build_dir);
+
+            // Also overwrite the original header to ensure C++ build uses the correct path
+            std::fs::copy(&header_dest, &header_source).expect("Failed to overwrite original header file with fixed path");
+
+            // Always remove the static library to force a rebuild if model or header changes
+            let lib_path = build_dir.join("libedge-impulse-sdk.a");
+            if lib_path.exists() {
+                std::fs::remove_file(&lib_path).expect("Failed to remove old static library");
+                println!("cargo:warning=Removed old static library to force C++ rebuild");
+            }
+        }
+        // --- End TFLite copy logic ---
     }
 
     // Check if we need full TensorFlow Lite
@@ -956,9 +1023,16 @@ fn main() {
     if has_valid_model {
         // Check if the library already exists
         let lib_path = build_dir.join("libedge-impulse-sdk.a");
-        if !lib_path.exists() {
-            println!("cargo:info=Library not found, building C++ library...");
+        let should_rebuild = !lib_path.exists() || env::var("FORCE_REBUILD").is_ok();
 
+        if should_rebuild {
+            if !lib_path.exists() {
+                println!("cargo:warning=Library not found, building C++ library...");
+            } else {
+                println!("cargo:warning=Force rebuild requested, rebuilding C++ library...");
+            }
+
+            println!("cargo:warning=CMake args: {:?}", cmake_args);
             let cmake_status = Command::new("cmake")
                 .args(&cmake_args)
                 .current_dir(&build_dir)
@@ -981,7 +1055,7 @@ fn main() {
                 panic!("Make build failed");
             }
         } else {
-            println!("cargo:info=Library already exists, skipping build");
+            println!("cargo:warning=Library already exists, skipping build");
         }
 
         // Diagnostic: print contents of build directory
@@ -1023,6 +1097,8 @@ fn main() {
         println!("cargo:rerun-if-changed={}/edge-impulse-sdk", model_dir);
         println!("cargo:rerun-if-changed={}/model-parameters", model_dir);
         println!("cargo:rerun-if-changed={}/tflite-model", model_dir);
+        println!("cargo:rerun-if-changed={}/tflite-model/tflite_learn_8.h", model_dir);
+        println!("cargo:rerun-if-changed={}/tflite-model/tflite_learn_8.cpp", model_dir);
 
         println!("cargo:info=Library linking setup complete");
     } else {

@@ -5,6 +5,12 @@ project(edge-impulse-sdk)
 add_definitions(-DEIDSP_SIGNAL_C_FN_POINTER=0)
 add_definitions(-DEI_C_LINKAGE=1)
 
+# Enable XNNPACK for better performance when using full TensorFlow Lite
+if(EI_CLASSIFIER_USE_FULL_TFLITE)
+    add_definitions(-DTFLITE_KERNEL_USE_XNNPACK=1)
+    add_definitions(-DTFLITE_USE_XNNPACK=1)
+endif()
+
 # Include Edge Impulse SDK utilities
 include(edge-impulse-sdk/cmake/utils.cmake)
 
@@ -13,12 +19,21 @@ RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE "tflite-model" "*.cpp")
 RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE "model-parameters" "*.cpp")
 RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE "edge-impulse-sdk" "*.cpp")
 RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE "edge-impulse-sdk/third_party" "*.cpp")
-# TensorFlow Lite Micro uses .cc extension
-RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE "edge-impulse-sdk/tensorflow" "*.cc")
+
+# Conditionally include TensorFlow Lite source files
+if(EI_CLASSIFIER_USE_FULL_TFLITE)
+    # When using full TensorFlow Lite, we link against prebuilt libraries
+    # Only include Edge Impulse specific TensorFlow files
+    RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE "edge-impulse-sdk/tensorflow/lite/micro/kernels" "detection_postprocess.cc")
+else()
+    # When using TensorFlow Lite Micro, include all TensorFlow source files
+    RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE "edge-impulse-sdk/tensorflow" "*.cc")
+    # Explicitly add detection_postprocess.cc to ensure the symbol is included
+    list(APPEND MODEL_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/edge-impulse-sdk/tensorflow/lite/micro/kernels/detection_postprocess.cc")
+endif()
+
 list(APPEND MODEL_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/edge_impulse_c_api.cpp")
 list(APPEND MODEL_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/tflite_detection_postprocess_wrapper.cc")
-# Explicitly add detection_postprocess.cc to ensure the symbol is included
-list(APPEND MODEL_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/edge-impulse-sdk/tensorflow/lite/micro/kernels/detection_postprocess.cc")
 
 # Create a static library instead of an executable
 add_library(edge-impulse-sdk STATIC ${MODEL_SOURCE})
@@ -44,7 +59,12 @@ target_include_directories(edge-impulse-sdk PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/edge-impulse-sdk/tensorflow/lite
     ${CMAKE_CURRENT_SOURCE_DIR}/edge-impulse-sdk/tensorflow/lite/micro
     ${CMAKE_CURRENT_SOURCE_DIR}/edge-impulse-sdk/tensorflow/lite/micro/kernels
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_BINARY_DIR}
+    .
+    ${CMAKE_CURRENT_BINARY_DIR}/tflite-model
 )
+target_compile_definitions(edge-impulse-sdk PUBLIC INCBIN_SILENCE_BITCODE_WARNING)
 
 # Set C++ standard
 set_target_properties(edge-impulse-sdk PROPERTIES
@@ -59,3 +79,41 @@ target_compile_options(edge-impulse-sdk PRIVATE
     -Wall
     -Wextra
 )
+
+# Link against prebuilt libraries when using full TensorFlow Lite
+if(EI_CLASSIFIER_USE_FULL_TFLITE)
+    # Determine the platform-specific library directory
+    if(DEFINED TARGET_PLATFORM)
+        set(TFLITE_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tflite/${TARGET_PLATFORM}")
+    else()
+        # Fallback to auto-detection
+        if(APPLE)
+            if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64")
+                set(TFLITE_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tflite/mac-arm64")
+            else()
+                set(TFLITE_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tflite/mac-x86_64")
+            endif()
+        else()
+            if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+                set(TFLITE_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tflite/linux-aarch64")
+            else()
+                set(TFLITE_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../tflite/linux-x86")
+            endif()
+        endif()
+    endif()
+
+    message(STATUS "Linking against TensorFlow Lite libraries in: ${TFLITE_LIB_DIR}")
+
+    # Link against prebuilt TensorFlow Lite and XNNPACK libraries
+    target_link_libraries(edge-impulse-sdk PRIVATE
+        ${TFLITE_LIB_DIR}/libtensorflow-lite.a
+        ${TFLITE_LIB_DIR}/libXNNPACK.a
+        ${TFLITE_LIB_DIR}/libcpuinfo.a
+        ${TFLITE_LIB_DIR}/libfarmhash.a
+        ${TFLITE_LIB_DIR}/libfft2d_fftsg.a
+        ${TFLITE_LIB_DIR}/libfft2d_fftsg2d.a
+        ${TFLITE_LIB_DIR}/libflatbuffers.a
+        ${TFLITE_LIB_DIR}/libpthreadpool.a
+        ${TFLITE_LIB_DIR}/libruy.a
+    )
+endif()

@@ -5,6 +5,7 @@
 
 use clap::Parser;
 use edge_impulse_ffi_rs::bindings::*;
+use edge_impulse_ffi_rs::model_metadata::*;
 use image::{self, GenericImageView};
 use image::{imageops::FilterType, DynamicImage, RgbImage};
 use std::error::Error;
@@ -161,14 +162,15 @@ fn print_timing(timing: &ei_impulse_result_timing_t) {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
-    // For this example, we'll use hardcoded values since we don't have model metadata
-    // In a real application, you'd get these from the model metadata
-    let input_width = 96; // Example value
-    let input_height = 96; // Example value
-    let resize_mode = 0; // EI_CLASSIFIER_RESIZE_SQUASH
-    let label_count = 2; // Example value
+    // Get model metadata from the generated constants
+    let input_width = EI_CLASSIFIER_INPUT_WIDTH as u32;
+    let input_height = EI_CLASSIFIER_INPUT_HEIGHT as u32;
+    let resize_mode = EI_CLASSIFIER_RESIZE_MODE;
+    let label_count = EI_CLASSIFIER_LABEL_COUNT as u16;
 
     println!("Using input dimensions: {}x{}", input_width, input_height);
+    println!("Model: {} (v{})", EI_CLASSIFIER_PROJECT_NAME, EI_CLASSIFIER_PROJECT_DEPLOY_VERSION);
+    println!("Resize mode: {}", resize_mode);
 
     // Load and process the image
     let img = image::open(&args.image)?;
