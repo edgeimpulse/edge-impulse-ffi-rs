@@ -727,6 +727,24 @@ fn patch_model_for_full_tflite(model_dir: &Path, use_full_tflite: bool) {
     }
 }
 
+fn link_with_standard_library() {
+    if cfg!(target_os = "linux") {
+        println!("cargo:rustc-link-lib=stdc++");
+    } else if cfg!(target_os = "macos") {
+        println!("cargo:rustc-link-lib=c++");
+    } else if cfg!(target_os = "windows") {
+        if cfg!(target_env = "msvc") {
+            println!("cargo:rustc-link-lib=msvcrt");
+        } else {
+            println!("cargo:rustc-link-lib=stdc++"); // MinGW
+        }
+    } else {
+        println!("cargo:warning=Unknown platform, defaulting to stdc++");
+        println!("cargo:rustc-link-lib=stdc++");
+    }
+}
+
+
 fn main() {
     println!("cargo:warning=DEBUG: Build script starting...");
     println!("cargo:warning=DEBUG: Current directory: {:?}", std::env::current_dir().unwrap());
@@ -1118,7 +1136,7 @@ fn main() {
         println!("cargo:rustc-link-lib=static=edge-impulse-sdk");
 
         // Link against C++ standard library
-        println!("cargo:rustc-link-lib=c++");
+        link_with_standard_library();
 
         // Link against prebuilt TensorFlow Lite libraries when using full TensorFlow Lite
         if use_full_tflite {
