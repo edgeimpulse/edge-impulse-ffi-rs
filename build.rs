@@ -906,6 +906,34 @@ fn patch_model_for_full_tflite(model_dir: &Path, use_full_tflite: bool) {
     }
 }
 
+fn link_with_standard_library() {
+    #[cfg(all(target_os = "windows", target_env = "msvc"))]
+    {
+        println!("cargo:rustc-link-lib=msvcrt"); // MSVC runtime
+    }
+
+    #[cfg(all(target_os = "windows", target_env = "gnu"))]
+    {
+        println!("cargo:rustc-link-lib=stdc++"); // MinGW GNU toolchain
+    }
+
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        println!("cargo:rustc-link-lib=stdc++");
+    }
+
+    #[cfg(all(target_os = "linux", target_env = "musl"))]
+    {
+        println!("cargo:rustc-link-lib=static=stdc++");
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        println!("cargo:rustc-link-lib=c++"); // macOS uses libc++
+    }
+}
+
+
 fn main() {
     println!("cargo:warning=DEBUG: Build script starting...");
     println!(
@@ -1473,13 +1501,7 @@ fn main() {
         println!("cargo:rustc-link-lib=static=edge-impulse-sdk");
 
         // Link against C++ standard library
-        if env::var("TARGET_LINUX_AARCH64").is_ok() {
-            // For aarch64 cross-compilation, use the ARM64 C++ standard library (dynamic)
-            println!("cargo:rustc-link-lib=dylib=stdc++");
-        } else {
-            // Use c++ for macOS and other platforms
-            println!("cargo:rustc-link-lib=c++");
-        }
+        link_with_standard_library();
 
         // Link against prebuilt TensorFlow Lite libraries when using full TensorFlow Lite
         if use_full_tflite {
