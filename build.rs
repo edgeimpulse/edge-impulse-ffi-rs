@@ -907,29 +907,19 @@ fn patch_model_for_full_tflite(model_dir: &Path, use_full_tflite: bool) {
 }
 
 fn link_with_standard_library() {
-    #[cfg(all(target_os = "windows", target_env = "msvc"))]
-    {
-        println!("cargo:rustc-link-lib=msvcrt"); // MSVC runtime
-    }
-
-    #[cfg(all(target_os = "windows", target_env = "gnu"))]
-    {
-        println!("cargo:rustc-link-lib=stdc++"); // MinGW GNU toolchain
-    }
-
-    #[cfg(all(target_os = "linux", target_env = "gnu"))]
-    {
+    if cfg!(target_os = "linux") {
         println!("cargo:rustc-link-lib=stdc++");
-    }
-
-    #[cfg(all(target_os = "linux", target_env = "musl"))]
-    {
-        println!("cargo:rustc-link-lib=static=stdc++");
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        println!("cargo:rustc-link-lib=c++"); // macOS uses libc++
+    } else if cfg!(target_os = "macos") {
+        println!("cargo:rustc-link-lib=c++");
+    } else if cfg!(target_os = "windows") {
+        if cfg!(target_env = "msvc") {
+            println!("cargo:rustc-link-lib=msvcrt");
+        } else {
+            println!("cargo:rustc-link-lib=stdc++"); // MinGW
+        }
+    } else {
+        println!("cargo:warning=Unknown platform, defaulting to stdc++");
+        println!("cargo:rustc-link-lib=stdc++");
     }
 }
 
