@@ -864,7 +864,13 @@ fn main() {
 
         println!("cargo:info=Real bindings generated successfully!");
     } else {
-        println!("cargo:warning=No valid Edge Impulse model found, skipping bindings and metadata generation.");
+        eprintln!("cargo:error=FFI crate requires a valid Edge Impulse model, but none was found");
+        eprintln!("cargo:error=Please either:");
+        eprintln!("cargo:error=  1. Ensure model files exist in the model/ directory");
+        eprintln!("cargo:error=  2. Set environment variables to download a model:");
+        eprintln!("cargo:error=     export EI_PROJECT_ID=your-project-id");
+        eprintln!("cargo:error=     export EI_API_KEY=your-api-key");
+        std::process::exit(1);
     }
 
     // Check if we should clean the model folder
