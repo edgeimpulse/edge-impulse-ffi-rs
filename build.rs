@@ -1383,7 +1383,7 @@ fn main() {
         println!("cargo:rerun-if-changed={}/model-parameters", model_dir);
         println!("cargo:rerun-if-changed={}/tflite-model", model_dir);
 
-                // Watch all TFLite files and their corresponding headers/CPP files
+        // Watch all TFLite files and their corresponding headers/CPP files
         let tflite_model_dir = Path::new(model_dir).join("tflite-model");
         if let Ok(entries) = std::fs::read_dir(&tflite_model_dir) {
             for entry in entries.flatten() {

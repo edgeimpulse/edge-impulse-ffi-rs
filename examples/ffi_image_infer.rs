@@ -143,6 +143,41 @@ fn print_bounding_boxes(result: &ei_impulse_result_t) {
     }
 }
 
+/// Print visual anomaly detection results from raw C struct
+fn print_visual_anomaly_results(result: &ei_impulse_result_t) {
+    // Print overall anomaly score
+    if result.anomaly > 0.0 {
+        println!("Anomaly score: {:.3}", result.anomaly);
+    }
+
+    // Print visual anomaly detection results if available
+    if result.visual_ad_count > 0 && !result.visual_ad_grid_cells.is_null() {
+        println!("Visual anomaly detection results:");
+        println!("  Overall anomaly score: {:.2}", result.anomaly);
+        println!(
+            "  Visual AD mean value: {:.2}",
+            result.visual_ad_result.mean_value
+        );
+        println!(
+            "  Visual AD max value: {:.2}",
+            result.visual_ad_result.max_value
+        );
+        println!("  Number of anomalous regions: {}", result.visual_ad_count);
+
+        let grid_cells = unsafe {
+            std::slice::from_raw_parts(result.visual_ad_grid_cells, result.visual_ad_count as usize)
+        };
+
+        println!("  Anomalous regions:");
+        for (i, cell) in grid_cells.iter().enumerate() {
+            println!(
+                "    Region {}: value={:.2}, x={}, y={}, w={}, h={}",
+                i, cell.value, cell.x, cell.y, cell.width, cell.height
+            );
+        }
+    }
+}
+
 /// Print timing information from raw C struct
 fn print_timing(timing: &ei_impulse_result_timing_t) {
     println!("Timing:");
@@ -237,6 +272,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             // Print bounding boxes for object detection
             print_bounding_boxes(&result);
+
+            // Print visual anomaly detection results
+            print_visual_anomaly_results(&result);
 
             // Print timing info
             print_timing(&result.timing);
