@@ -827,6 +827,23 @@ fn extract_and_write_model_metadata() {
     fs::write(out_path, out).expect("Failed to write model_metadata.rs");
 }
 
+/// Patch model metadata to always include visual anomaly detection fields
+fn patch_model_metadata_for_visual_anomaly(model_dir: &Path) {
+    let metadata_header = model_dir.join("model-parameters/model_metadata.h");
+    if let Ok(content) = std::fs::read_to_string(&metadata_header) {
+        // Replace EI_CLASSIFIER_HAS_VISUAL_ANOMALY definition to always be 1
+        let patched = regex::Regex::new(r"#define EI_CLASSIFIER_HAS_VISUAL_ANOMALY\s+\d+")
+            .unwrap()
+            .replace(&content, "#define EI_CLASSIFIER_HAS_VISUAL_ANOMALY 1");
+
+        if patched != content {
+            std::fs::write(&metadata_header, patched.as_bytes())
+                .expect("Failed to patch model_metadata.h");
+            println!("cargo:info=Patched model_metadata.h to enable visual anomaly detection");
+        }
+    }
+}
+
 fn patch_model_for_full_tflite(model_dir: &Path, use_full_tflite: bool) {
     if !use_full_tflite {
         return;
@@ -941,6 +958,9 @@ fn main() {
     // If we have a valid model, copy the FFI glue files to set up the build environment
     if has_valid_model {
         copy_ffi_glue("model");
+
+        // Patch model metadata to always include visual anomaly detection fields
+        patch_model_metadata_for_visual_anomaly(&manifest_path.join("model"));
     }
 
     if has_valid_model {
