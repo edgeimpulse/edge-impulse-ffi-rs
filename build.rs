@@ -958,6 +958,8 @@ fn main() {
             .clang_arg("-flto")
             .clang_arg("-ffast-math")
             .clang_arg("-funroll-loops")
+            // Force inclusion of visual anomaly detection fields for consistent bindings
+            .clang_arg("-DEI_CLASSIFIER_HAS_VISUAL_ANOMALY=1")
             .rustified_enum(".*")
             .default_enum_style(bindgen::EnumVariation::Rust {
                 non_exhaustive: false,
@@ -967,11 +969,12 @@ fn main() {
             .derive_copy(true)
             .derive_debug(true)
             .derive_default(true)
-            .derive_eq(true)
-            .derive_hash(true)
-            .derive_partialeq(true)
-            .derive_partialord(true)
-            .derive_ord(true)
+            // Do NOT derive Eq, PartialEq, Hash, Ord, PartialOrd to avoid function pointer comparison warnings
+            .derive_eq(false)
+            .derive_hash(false)
+            .derive_partialeq(false)
+            .derive_partialord(false)
+            .derive_ord(false)
             // Disable problematic traits for structs with function pointers
             .disable_name_namespacing()
             .disable_untagged_union()
