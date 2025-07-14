@@ -575,7 +575,8 @@ fn fix_header_file_path(build_dir: &Path) {
         let header_file = tflite_model_dir.join(&header_filename);
 
         if header_file.exists() && tflite_file.exists() {
-            let content = std::fs::read_to_string(&header_file).expect("Failed to read header file");
+            let content =
+                std::fs::read_to_string(&header_file).expect("Failed to read header file");
             let abs_path = tflite_file
                 .canonicalize()
                 .expect("Failed to canonicalize tflite file path");
@@ -1382,21 +1383,25 @@ fn main() {
         println!("cargo:rerun-if-changed={}/model-parameters", model_dir);
         println!("cargo:rerun-if-changed={}/tflite-model", model_dir);
 
-        // Watch all TFLite files and their corresponding headers/CPP files
+                // Watch all TFLite files and their corresponding headers/CPP files
         let tflite_model_dir = Path::new(model_dir).join("tflite-model");
         if let Ok(entries) = std::fs::read_dir(&tflite_model_dir) {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let file_name_os = entry.file_name();
-                    let file_name = file_name_os.to_string_lossy();
-                    if file_name.ends_with(".tflite") && file_name.starts_with("tflite_learn_") {
-                        let base_name = file_name.trim_end_matches(".tflite");
-                        let header_file = format!("{}.h", base_name);
-                        let cpp_file = format!("{}.cpp", base_name);
+            for entry in entries.flatten() {
+                let file_name_os = entry.file_name();
+                let file_name = file_name_os.to_string_lossy();
+                if file_name.ends_with(".tflite") && file_name.starts_with("tflite_learn_") {
+                    let base_name = file_name.trim_end_matches(".tflite");
+                    let header_file = format!("{}.h", base_name);
+                    let cpp_file = format!("{}.cpp", base_name);
 
-                        println!("cargo:rerun-if-changed={}/tflite-model/{}", model_dir, header_file);
-                        println!("cargo:rerun-if-changed={}/tflite-model/{}", model_dir, cpp_file);
-                    }
+                    println!(
+                        "cargo:rerun-if-changed={}/tflite-model/{}",
+                        model_dir, header_file
+                    );
+                    println!(
+                        "cargo:rerun-if-changed={}/tflite-model/{}",
+                        model_dir, cpp_file
+                    );
                 }
             }
         }
