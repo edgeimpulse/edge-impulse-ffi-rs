@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+
+// Force inclusion of visual anomaly detection fields
+#define EI_CLASSIFIER_HAS_VISUAL_ANOMALY 1
+
 // Include the SDK headers for type definitions
 #include "edge-impulse-sdk/classifier/ei_run_classifier.h"
 #include "edge-impulse-sdk/classifier/ei_classifier_types.h"

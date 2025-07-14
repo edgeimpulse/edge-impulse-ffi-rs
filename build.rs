@@ -987,6 +987,7 @@ fn main() {
             .allowlist_type("ei_impulse_result_classification_t")
             .allowlist_type("ei_impulse_result_bounding_box_t")
             .allowlist_type("ei_impulse_result_timing_t")
+            .allowlist_type("ei_impulse_visual_ad_result_t")
             .allowlist_function("ei_ffi_run_classifier_init")
             .allowlist_function("ei_ffi_run_classifier_deinit")
             .allowlist_function("ei_ffi_init_impulse")
