@@ -67,6 +67,82 @@ fn copy_ffi_glue(model_dir: &str) {
     }
 }
 
+/// Copy model files from a custom directory specified by EI_MODEL environment variable
+fn copy_model_from_custom_path() -> bool {
+    if let Ok(model_path) = env::var("EI_MODEL") {
+        println!("cargo:info=Found EI_MODEL environment variable: {}", model_path);
+
+        let model_source = Path::new(&model_path);
+        if !model_source.exists() {
+            println!("cargo:error=EI_MODEL path does not exist: {}", model_path);
+            return false;
+        }
+
+        let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+        let model_dest = Path::new(&manifest_dir).join("model");
+
+        // Create model directory if it doesn't exist
+        if !model_dest.exists() {
+            std::fs::create_dir_all(&model_dest).expect("Failed to create model directory");
+        }
+
+        // Copy the model files
+        println!("cargo:info=Copying model files from {} to {}", model_path, model_dest.display());
+
+        // Copy directories that should exist in a valid model
+        let dirs_to_copy = ["edge-impulse-sdk", "model-parameters", "tflite-model"];
+        for dir in &dirs_to_copy {
+            let src_dir = model_source.join(dir);
+            let dst_dir = model_dest.join(dir);
+
+            if src_dir.exists() {
+                if dst_dir.exists() {
+                    std::fs::remove_dir_all(&dst_dir).expect(&format!("Failed to remove existing {}", dir));
+                }
+                copy_dir_recursive(&src_dir, &dst_dir).expect(&format!("Failed to copy {}", dir));
+                println!("cargo:info=Copied {} directory", dir);
+            } else {
+                println!("cargo:warning=Source directory {} not found in {}", dir, model_path);
+            }
+        }
+
+        // Also copy tensorflow-lite if it exists (for full TFLite builds)
+        let tflite_src = model_source.join("tensorflow-lite");
+        let tflite_dst = model_dest.join("tensorflow-lite");
+        if tflite_src.exists() {
+            if tflite_dst.exists() {
+                std::fs::remove_dir_all(&tflite_dst).expect("Failed to remove existing tensorflow-lite");
+            }
+            copy_dir_recursive(&tflite_src, &tflite_dst).expect("Failed to copy tensorflow-lite");
+            println!("cargo:info=Copied tensorflow-lite directory");
+        }
+
+        return true;
+    }
+    false
+}
+
+/// Recursively copy a directory
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if !dst.exists() {
+        std::fs::create_dir_all(dst)?;
+    }
+
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        if ty.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
+}
+
 /// Read Edge Impulse project configuration from environment variables
 fn read_edge_impulse_config() -> Option<(String, String)> {
     // Check environment variables
@@ -751,7 +827,26 @@ fn main() {
     let mut has_valid_model =
         sdk_dir.exists() && model_parameters_dir.exists() && tflite_model_dir.exists();
 
-    // If no valid model found, try to download from Edge Impulse API
+    // If no valid model found, try to copy from EI_MODEL path first
+    if !has_valid_model {
+        println!("cargo:info=No valid model found locally, checking for EI_MODEL environment variable...");
+
+        if copy_model_from_custom_path() {
+            // Re-check if we now have a valid model
+            has_valid_model =
+                sdk_dir.exists() && model_parameters_dir.exists() && tflite_model_dir.exists();
+
+            if has_valid_model {
+                println!("cargo:info=Model was copied from EI_MODEL path successfully");
+            } else {
+                println!("cargo:warning=Model copy completed but model structure is still invalid");
+            }
+        } else {
+            println!("cargo:info=No EI_MODEL environment variable found or copy failed");
+        }
+    }
+
+    // If still no valid model found, try to download from Edge Impulse API
     if !has_valid_model {
         println!("cargo:info=No valid model found locally, checking for Edge Impulse API configuration...");
 
@@ -867,7 +962,9 @@ fn main() {
         eprintln!("cargo:error=FFI crate requires a valid Edge Impulse model, but none was found");
         eprintln!("cargo:error=Please either:");
         eprintln!("cargo:error=  1. Ensure model files exist in the model/ directory");
-        eprintln!("cargo:error=  2. Set environment variables to download a model:");
+        eprintln!("cargo:error=  2. Set EI_MODEL environment variable to copy from a custom path:");
+        eprintln!("cargo:error=     export EI_MODEL=/path/to/your/model");
+        eprintln!("cargo:error=  3. Set environment variables to download a model:");
         eprintln!("cargo:error=     export EI_PROJECT_ID=your-project-id");
         eprintln!("cargo:error=     export EI_API_KEY=your-api-key");
         std::process::exit(1);

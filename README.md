@@ -18,7 +18,22 @@ This project lets you run Edge Impulse machine learning models from Rust using a
    cargo run --example ffi_image_infer -- --image <path_to_image>
    ```
 
-### Option 2: Automated Model Download
+### Option 2: Copy Model from Custom Path
+You can copy your Edge Impulse model from a custom directory path using the `EI_MODEL` environment variable:
+
+```sh
+export EI_MODEL=/path/to/your/edge-impulse-model
+cargo build
+```
+
+This will:
+1. Copy the model files from the specified path to the `model/` directory
+2. Build the C++ library automatically
+3. Generate the necessary Rust bindings
+
+**Note**: The source directory should contain the standard Edge Impulse model structure (`edge-impulse-sdk/`, `model-parameters/`, `tflite-model/`, etc.).
+
+### Option 3: Automated Model Download
 You can automatically download and build your Edge Impulse model during the build process by setting environment variables:
 
 ```sh
@@ -36,6 +51,19 @@ This will:
 
 **Security**: Never commit your API key to version control. Environment variables are the recommended approach for managing secrets.
 
+#### Model Source Priority
+
+The build system checks for models in the following order:
+
+1. **Local model files** in the `model/` directory (if they already exist)
+2. **Custom model path** specified by `EI_MODEL` environment variable
+3. **Edge Impulse API download** using `EI_PROJECT_ID` and `EI_API_KEY`
+
+This means you can:
+- Use pre-existing model files (fastest)
+- Copy from a custom path (useful for Docker builds, CI/CD)
+- Download from Edge Impulse Studio (requires API credentials)
+
 #### Engine Selection
 By default, the model is built with the `tflite-eon` engine (optimized for microcontrollers). To use the standard `tflite` engine (compatible with full TensorFlow Lite), set the `EI_ENGINE` environment variable:
 
@@ -47,6 +75,22 @@ EI_ENGINE=tflite cargo build
 EI_ENGINE=tflite-eon cargo build
 # or simply
 cargo build
+```
+
+### EI_MODEL Usage Examples
+
+```sh
+# Copy model from a mounted volume in Docker
+EI_MODEL=/mnt/models/my-project cargo build
+
+# Copy model from a relative path
+EI_MODEL=../shared-models/project-123 cargo build
+
+# Copy model and use full TensorFlow Lite
+EI_MODEL=/opt/models/my-project USE_FULL_TFLITE=1 cargo build
+
+# Copy model with platform-specific flags
+EI_MODEL=/path/to/model TARGET_MAC_ARM64=1 USE_FULL_TFLITE=1 cargo build
 ```
 
 ## Building
@@ -189,9 +233,15 @@ When using this crate as a dependency in another Rust project, you must set the 
 edge-impulse-ffi-rs = { path = "../edge-impulse-ffi-rs" }
 ```
 
-Then build with the required environment variables:
+Then build with the required environment variables. You can use any of the model source options:
 
 ```sh
+# Copy model from custom path
+EI_MODEL=/path/to/model cargo build
+
+# Download from Edge Impulse Studio
+EI_PROJECT_ID=12345 EI_API_KEY=your-api-key cargo build
+
 # For full TensorFlow Lite on Apple Silicon
 TARGET_MAC_ARM64=1 USE_FULL_TFLITE=1 cargo build
 
@@ -221,7 +271,20 @@ This is useful when you want to:
 
 The `build.rs` script automates the entire build process:
 
-### Model Download (if configured)
+### Model Acquisition
+The build system supports three ways to get model files:
+
+#### Option 1: Local Files (if configured)
+If model files already exist in the `model/` directory, they are used directly.
+
+#### Option 2: Custom Path Copy (if configured)
+If `EI_MODEL` environment variable is set:
+1. Validates the source path exists
+2. Copies `edge-impulse-sdk/`, `model-parameters/`, `tflite-model/` directories
+3. Optionally copies `tensorflow-lite/` directory (for full TFLite builds)
+4. Preserves existing `model/.gitignore` and `model/README.md` files
+
+#### Option 3: API Download (if configured)
 If `EI_PROJECT_ID` and `EI_API_KEY` environment variables are set:
 1. Fetches project information from Edge Impulse REST API
 2. Triggers a build job for the latest model
