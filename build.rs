@@ -7,7 +7,6 @@ use std::time::Duration;
 
 // Add serde imports for JSON handling
 use serde::Deserialize;
-use regex;
 use std::path::Path;
 
 // JSON response structures for Edge Impulse API
@@ -62,7 +61,7 @@ fn copy_ffi_glue(model_dir: &str) {
         let src = format!("ffi_glue/{}", file);
         let dst = format!("{}/{}", model_dir, file);
         if std::path::Path::new(&src).exists() {
-            fs::copy(&src, &dst).expect(&format!("Failed to copy {} to {}", src, dst));
+            fs::copy(&src, &dst).unwrap_or_else(|_| panic!("Failed to copy {} to {}", src, dst));
         }
     }
 }
@@ -70,7 +69,10 @@ fn copy_ffi_glue(model_dir: &str) {
 /// Copy model files from a custom directory specified by EI_MODEL environment variable
 fn copy_model_from_custom_path() -> bool {
     if let Ok(model_path) = env::var("EI_MODEL") {
-        println!("cargo:info=Found EI_MODEL environment variable: {}", model_path);
+        println!(
+            "cargo:info=Found EI_MODEL environment variable: {}",
+            model_path
+        );
 
         let model_source = Path::new(&model_path);
         if !model_source.exists() {
@@ -83,11 +85,16 @@ fn copy_model_from_custom_path() -> bool {
 
         // Create model directory if it doesn't exist
         if !model_dest.exists() {
-            std::fs::create_dir_all(&model_dest).expect("Failed to create model directory");
+            std::fs::create_dir_all(&model_dest)
+                .unwrap_or_else(|_| panic!("Failed to create model directory"));
         }
 
         // Copy the model files
-        println!("cargo:info=Copying model files from {} to {}", model_path, model_dest.display());
+        println!(
+            "cargo:info=Copying model files from {} to {}",
+            model_path,
+            model_dest.display()
+        );
 
         // Copy directories that should exist in a valid model
         let dirs_to_copy = ["edge-impulse-sdk", "model-parameters", "tflite-model"];
@@ -97,12 +104,17 @@ fn copy_model_from_custom_path() -> bool {
 
             if src_dir.exists() {
                 if dst_dir.exists() {
-                    std::fs::remove_dir_all(&dst_dir).expect(&format!("Failed to remove existing {}", dir));
+                    std::fs::remove_dir_all(&dst_dir)
+                        .unwrap_or_else(|_| panic!("Failed to remove existing {}", dir));
                 }
-                copy_dir_recursive(&src_dir, &dst_dir).expect(&format!("Failed to copy {}", dir));
+                copy_dir_recursive(&src_dir, &dst_dir)
+                    .unwrap_or_else(|_| panic!("Failed to copy {}", dir));
                 println!("cargo:info=Copied {} directory", dir);
             } else {
-                println!("cargo:warning=Source directory {} not found in {}", dir, model_path);
+                println!(
+                    "cargo:warning=Source directory {} not found in {}",
+                    dir, model_path
+                );
             }
         }
 
@@ -111,9 +123,11 @@ fn copy_model_from_custom_path() -> bool {
         let tflite_dst = model_dest.join("tensorflow-lite");
         if tflite_src.exists() {
             if tflite_dst.exists() {
-                std::fs::remove_dir_all(&tflite_dst).expect("Failed to remove existing tensorflow-lite");
+                std::fs::remove_dir_all(&tflite_dst)
+                    .unwrap_or_else(|_| panic!("Failed to remove existing tensorflow-lite"));
             }
-            copy_dir_recursive(&tflite_src, &tflite_dst).expect("Failed to copy tensorflow-lite");
+            copy_dir_recursive(&tflite_src, &tflite_dst)
+                .unwrap_or_else(|_| panic!("Failed to copy tensorflow-lite"));
             println!("cargo:info=Copied tensorflow-lite directory");
         }
 
@@ -482,7 +496,7 @@ fn clean_model_folder() {
     let model_dir = "model";
 
     // Check if model directory exists
-    if !fs::metadata(model_dir).is_ok() {
+    if fs::metadata(model_dir).is_err() {
         println!("Model directory does not exist, nothing to clean");
         return;
     }
@@ -520,12 +534,10 @@ fn clean_model_folder() {
             } else {
                 println!("Removed directory: {:?}", path);
             }
+        } else if let Err(e) = fs::remove_file(&path) {
+            eprintln!("Failed to remove file {:?}: {}", path, e);
         } else {
-            if let Err(e) = fs::remove_file(&path) {
-                eprintln!("Failed to remove file {:?}: {}", path, e);
-            } else {
-                println!("Removed file: {:?}", path);
-            }
+            println!("Removed file: {:?}", path);
         }
     }
 
@@ -533,22 +545,66 @@ fn clean_model_folder() {
 }
 
 /// Fix the header file path in the generated header file to point to the correct TFLite file location
-fn fix_header_file_path(build_dir: &PathBuf) {
-    let header_file = build_dir.join("tflite-model/tflite_learn_8.h");
-    let tflite_file = build_dir.join("tflite-model/tflite_learn_8.tflite");
-    if header_file.exists() && tflite_file.exists() {
-        let content = std::fs::read_to_string(&header_file).expect("Failed to read header file");
-        let abs_path = tflite_file.canonicalize().expect("Failed to canonicalize tflite file path");
-        let abs_path_str = abs_path.to_str().expect("Non-UTF8 path");
-        // Patch any INCBIN macro to use the absolute path
-        let fixed_content = content.replace(
-            "INCBIN(incbin_tflite_learn_8, \"tflite-model/tflite_learn_8.tflite\");",
-            &format!("INCBIN(incbin_tflite_learn_8, \"{}\");", abs_path_str)
-        );
-        std::fs::write(&header_file, fixed_content).expect("Failed to write fixed header file");
-        println!("cargo:info=Fixed header file path in {}", header_file.display());
-    } else {
-        println!("cargo:warning=Header file or tflite file not found: {}", header_file.display());
+fn fix_header_file_path(build_dir: &Path) {
+    let tflite_model_dir = build_dir.join("tflite-model");
+
+    // Find the actual TFLite file (should be named tflite_learn_*.tflite)
+    let tflite_files: Vec<_> = std::fs::read_dir(&tflite_model_dir)
+        .expect("Failed to read tflite-model directory")
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let file_name_os = entry.file_name();
+            let file_name = file_name_os.to_str()?;
+            if file_name.ends_with(".tflite") && file_name.starts_with("tflite_learn_") {
+                Some((entry.path(), file_name.to_string()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if tflite_files.is_empty() {
+        println!("cargo:warning=No tflite_learn_*.tflite file found in build directory");
+        return;
+    }
+
+    // Fix all TFLite files and their corresponding headers
+    for (tflite_file, tflite_filename) in &tflite_files {
+        let base_name = tflite_filename.trim_end_matches(".tflite");
+        let header_filename = format!("{}.h", base_name);
+        let header_file = tflite_model_dir.join(&header_filename);
+
+        if header_file.exists() && tflite_file.exists() {
+            let content = std::fs::read_to_string(&header_file).expect("Failed to read header file");
+            let abs_path = tflite_file
+                .canonicalize()
+                .expect("Failed to canonicalize tflite file path");
+            let abs_path_str = abs_path.to_str().expect("Non-UTF8 path");
+
+            // Create the INCBIN macro name from the base name
+            let incbin_name = format!("incbin_{}", base_name);
+
+            // Patch any INCBIN macro to use the absolute path
+            let old_pattern = format!(
+                "INCBIN({}, \"tflite-model/{}\");",
+                incbin_name, tflite_filename
+            );
+            let new_pattern = format!("INCBIN({}, \"{}\");", incbin_name, abs_path_str);
+
+            let fixed_content = content.replace(&old_pattern, &new_pattern);
+            std::fs::write(&header_file, fixed_content).expect("Failed to write fixed header file");
+            println!(
+                "cargo:info=Fixed header file path in {} for {}",
+                header_file.display(),
+                tflite_filename
+            );
+        } else {
+            println!(
+                "cargo:warning=Header file or tflite file not found: {} or {}",
+                header_file.display(),
+                tflite_file.display()
+            );
+        }
     }
 }
 
@@ -592,17 +648,17 @@ fn extract_and_write_model_metadata() {
     }
 
     // Helper to resolve a constant recursively
-    fn resolve<'a>(name: &str, emitted: &'a HashMap<String, String>) -> Option<String> {
+    fn resolve(name: &str, emitted: &HashMap<String, String>) -> Option<String> {
         let mut current = name;
         let mut count = 0;
         while let Some(val) = emitted.get(current) {
             if val.starts_with('"') && val.ends_with('"') {
                 return Some(val.clone());
             }
-            if let Ok(_) = val.parse::<i32>() {
+            if val.parse::<i32>().is_ok() {
                 return Some(val.clone());
             }
-            if let Ok(_) = val.parse::<f32>() {
+            if val.parse::<f32>().is_ok() {
                 return Some(val.clone());
             }
             current = val;
@@ -785,7 +841,8 @@ fn patch_model_for_full_tflite(model_dir: &Path, use_full_tflite: bool) {
                     &caps[1]
                 )
             });
-        std::fs::write(&classifier_header, patched.as_bytes()).expect("Failed to patch ei_run_classifier.h");
+        std::fs::write(&classifier_header, patched.as_bytes())
+            .expect("Failed to patch ei_run_classifier.h");
         println!("cargo:info=Patched ei_run_classifier.h for full TFLite");
     }
     // Patch model/CMakeLists.txt to filter out micro sources
@@ -794,18 +851,20 @@ fn patch_model_for_full_tflite(model_dir: &Path, use_full_tflite: bool) {
         let patched = regex::Regex::new(r#"(# Find all model and SDK source files\nRECURSIVE_FIND_FILE_APPEND\(MODEL_SOURCE \"tflite-model\" \"\*\.cpp\"\)\nRECURSIVE_FIND_FILE_APPEND\(MODEL_SOURCE \"model-parameters\" \"\*\.cpp\"\)\nRECURSIVE_FIND_FILE_APPEND\(MODEL_SOURCE \"edge-impulse-sdk\" \"\*\.cpp\"\)\nRECURSIVE_FIND_FILE_APPEND\(MODEL_SOURCE \"edge-impulse-sdk/third_party\" \"\*\.cpp\"\))"#)
             .unwrap()
             .replace(&content, |_caps: &regex::Captures| {
-                format!(
-                    "# Find all model and SDK source files\nRECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE \"tflite-model\" \"*.cpp\")\nRECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE \"model-parameters\" \"*.cpp\")\n\n# Conditionally include Edge Impulse SDK source files\nif(EI_CLASSIFIER_USE_FULL_TFLITE)\n    RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE \"edge-impulse-sdk\" \"*.cpp\")\n    list(FILTER MODEL_SOURCE EXCLUDE REGEX \".*tensorflow/lite/micro.*\")\n    list(FILTER MODEL_SOURCE EXCLUDE REGEX \".*micro_interpreter.*\")\n    list(FILTER MODEL_SOURCE EXCLUDE REGEX \".*all_ops_resolver.*\")\nelse()\n    RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE \"edge-impulse-sdk\" \"*.cpp\")\nendif()\n\nRECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE \"edge-impulse-sdk/third_party\" \"*.cpp\")",
-                )
+                "# Find all model and SDK source files\nRECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE \"tflite-model\" \"*.cpp\")\nRECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE \"model-parameters\" \"*.cpp\")\n\n# Conditionally include Edge Impulse SDK source files\nif(EI_CLASSIFIER_USE_FULL_TFLITE)\n    RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE \"edge-impulse-sdk\" \"*.cpp\")\n    list(FILTER MODEL_SOURCE EXCLUDE REGEX \".*tensorflow/lite/micro.*\")\n    list(FILTER MODEL_SOURCE EXCLUDE REGEX \".*micro_interpreter.*\")\n    list(FILTER MODEL_SOURCE EXCLUDE REGEX \".*all_ops_resolver.*\")\nelse()\n    RECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE \"edge-impulse-sdk\" \"*.cpp\")\nendif()\n\nRECURSIVE_FIND_FILE_APPEND(MODEL_SOURCE \"edge-impulse-sdk/third_party\" \"*.cpp\")".to_string()
             });
-        std::fs::write(&cmake_lists, patched.as_bytes()).expect("Failed to patch model/CMakeLists.txt");
+        std::fs::write(&cmake_lists, patched.as_bytes())
+            .expect("Failed to patch model/CMakeLists.txt");
         println!("cargo:info=Patched model/CMakeLists.txt for full TFLite");
     }
 }
 
 fn main() {
     println!("cargo:warning=DEBUG: Build script starting...");
-    println!("cargo:warning=DEBUG: Current directory: {:?}", std::env::current_dir().unwrap());
+    println!(
+        "cargo:warning=DEBUG: Current directory: {:?}",
+        std::env::current_dir().unwrap()
+    );
 
     // Force rerun on every build
     println!("cargo:rerun-if-changed=build.rs");
@@ -988,43 +1047,92 @@ fn main() {
         // Create build directory if it doesn't exist
         std::fs::create_dir_all(&build_dir).expect("Failed to create build directory");
 
-                // --- Always copy TFLite file and header to build directory for INCBIN ---
-        let tflite_source = manifest_path.join("model/tflite-model/tflite_learn_8.tflite");
-        let header_source = manifest_path.join("model/tflite-model/tflite_learn_8.h");
+        // --- Dynamically find and copy TFLite file and header to build directory for INCBIN ---
+        let tflite_model_dir = manifest_path.join("model/tflite-model");
         let tflite_build_dir = build_dir.join("tflite-model");
-        let tflite_dest = tflite_build_dir.join("tflite_learn_8.tflite");
-        let header_dest = tflite_build_dir.join("tflite_learn_8.h");
 
-        if tflite_source.exists() && header_source.exists() {
-            std::fs::create_dir_all(&tflite_build_dir).expect("Failed to create tflite-model build dir");
+        // Find the actual TFLite file (should be named tflite_learn_*.tflite)
+        let tflite_files: Vec<_> = std::fs::read_dir(&tflite_model_dir)
+            .expect("Failed to read tflite-model directory")
+            .filter_map(|entry| {
+                let entry = entry.ok()?;
+                let file_name_os = entry.file_name();
+                let file_name = file_name_os.to_str()?;
+                if file_name.ends_with(".tflite") && file_name.starts_with("tflite_learn_") {
+                    Some((entry.path(), file_name.to_string()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if tflite_files.is_empty() {
+            println!("cargo:error=No tflite_learn_*.tflite file found in model/tflite-model/");
+            std::process::exit(1);
+        }
+
+        std::fs::create_dir_all(&tflite_build_dir)
+            .expect("Failed to create tflite-model build dir");
+
+        // Copy all TFLite files and their corresponding headers
+        for (tflite_source, tflite_filename) in &tflite_files {
+            let base_name = tflite_filename.trim_end_matches(".tflite");
+            let header_filename = format!("{}.h", base_name);
+            let header_source = tflite_model_dir.join(&header_filename);
+
+            if !header_source.exists() {
+                println!(
+                    "cargo:error=Header file {} not found for TFLite file {}",
+                    header_filename, tflite_filename
+                );
+                std::process::exit(1);
+            }
+
+            let tflite_dest = tflite_build_dir.join(tflite_filename);
+            let header_dest = tflite_build_dir.join(&header_filename);
 
             // Copy TFLite file
             if tflite_dest.exists() {
                 std::fs::remove_file(&tflite_dest).expect("Failed to remove old TFLite file");
             }
-            std::fs::copy(&tflite_source, &tflite_dest).expect("Failed to copy TFLite file to build directory");
+            std::fs::copy(tflite_source, &tflite_dest)
+                .expect("Failed to copy TFLite file to build directory");
 
             // Copy header file
             if header_dest.exists() {
                 std::fs::remove_file(&header_dest).expect("Failed to remove old header file");
             }
-            std::fs::copy(&header_source, &header_dest).expect("Failed to copy header file to build directory");
+            std::fs::copy(&header_source, &header_dest)
+                .expect("Failed to copy header file to build directory");
 
-            // Fix the header file path in the copied header file
-            fix_header_file_path(&build_dir);
-
-            // Also overwrite the original header to ensure C++ build uses the correct path
-            std::fs::copy(&header_dest, &header_source).expect("Failed to overwrite original header file with fixed path");
-
-            // Always remove the static library to force a rebuild if model or header changes
-            let lib_path = build_dir.join("libedge-impulse-sdk.a");
-            if lib_path.exists() {
-                std::fs::remove_file(&lib_path).expect("Failed to remove old static library");
-                println!("cargo:warning=Removed old static library to force C++ rebuild");
-            }
+            println!(
+                "cargo:info=Copied TFLite files to build directory: {} -> {}",
+                tflite_filename,
+                tflite_dest.display()
+            );
         }
-        // --- End TFLite copy logic ---
+
+        // Fix the header file paths in all copied header files
+        fix_header_file_path(&build_dir);
+
+        // Also overwrite the original headers to ensure C++ build uses the correct paths
+        for (_, tflite_filename) in &tflite_files {
+            let base_name = tflite_filename.trim_end_matches(".tflite");
+            let header_filename = format!("{}.h", base_name);
+            let header_source = tflite_model_dir.join(&header_filename);
+            let header_dest = tflite_build_dir.join(&header_filename);
+            std::fs::copy(&header_dest, &header_source)
+                .expect("Failed to overwrite original header file with fixed path");
+        }
+
+        // Always remove the static library to force a rebuild if model or header changes
+        let lib_path = build_dir.join("libedge-impulse-sdk.a");
+        if lib_path.exists() {
+            std::fs::remove_file(&lib_path).expect("Failed to remove old static library");
+            println!("cargo:warning=Removed old static library to force C++ rebuild");
+        }
     }
+    // --- End TFLite copy logic ---
 
     // Check if we need full TensorFlow Lite
     // Only USE_FULL_TFLITE is supported
@@ -1043,18 +1151,15 @@ fn main() {
         "linux-armv7"
     } else if env::var("TARGET_JETSON_NANO").is_ok() {
         "linux-jetson-nano"
-    } else if env::var("TARGET_JETSON_ORIN").is_ok() {
-        "linux-aarch64" // Jetson Orin uses aarch64
-    } else if env::var("TARGET_RENESAS_RZV2L").is_ok() {
-        "linux-aarch64" // Renesas RZ/V2L uses aarch64
-    } else if env::var("TARGET_RENESAS_RZG2L").is_ok() {
-        "linux-aarch64" // Renesas RZ/G2L uses aarch64
-    } else if env::var("TARGET_AM68PA").is_ok()
+    } else if env::var("TARGET_JETSON_ORIN").is_ok()
+        || env::var("TARGET_RENESAS_RZV2L").is_ok()
+        || env::var("TARGET_RENESAS_RZG2L").is_ok()
+        || env::var("TARGET_AM68PA").is_ok()
         || env::var("TARGET_AM62A").is_ok()
         || env::var("TARGET_AM68A").is_ok()
         || env::var("TARGET_TDA4VM").is_ok()
     {
-        "linux-aarch64" // TI TDA4VM variants use aarch64
+        "linux-aarch64"
     } else {
         // Auto-detect based on current system
         if cfg!(target_os = "macos") {
@@ -1181,7 +1286,7 @@ fn main() {
             // Build the library
             let make_status = Command::new("make")
                 .arg("-j")
-                .arg(&env::var("NUM_JOBS").unwrap_or_else(|_| "4".to_string()))
+                .arg(env::var("NUM_JOBS").unwrap_or_else(|_| "4".to_string()))
                 .current_dir(&build_dir)
                 .status()
                 .expect("Failed to run make");
@@ -1230,8 +1335,17 @@ fn main() {
             let cwd = std::env::current_dir().unwrap();
             println!("cargo:warning=DEBUG: current_dir: {}", cwd.display());
             println!("cargo:warning=DEBUG: tflite_lib_dir: {}", tflite_lib_dir);
-            println!("cargo:warning=DEBUG: tflite_lib_path exists: {}", tflite_lib_path.exists());
-            println!("cargo:warning=DEBUG: tflite_lib_path absolute: {}", tflite_lib_path.canonicalize().map(|p| p.display().to_string()).unwrap_or_else(|_| "(not found)".to_string()));
+            println!(
+                "cargo:warning=DEBUG: tflite_lib_path exists: {}",
+                tflite_lib_path.exists()
+            );
+            println!(
+                "cargo:warning=DEBUG: tflite_lib_path absolute: {}",
+                tflite_lib_path
+                    .canonicalize()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| "(not found)".to_string())
+            );
             // Check if TensorFlow Lite libraries exist (they might not when building from git)
             if tflite_lib_path.exists() {
                 println!("cargo:rustc-link-search=native={}", tflite_lib_dir);
@@ -1267,8 +1381,25 @@ fn main() {
         println!("cargo:rerun-if-changed={}/edge-impulse-sdk", model_dir);
         println!("cargo:rerun-if-changed={}/model-parameters", model_dir);
         println!("cargo:rerun-if-changed={}/tflite-model", model_dir);
-        println!("cargo:rerun-if-changed={}/tflite-model/tflite_learn_8.h", model_dir);
-        println!("cargo:rerun-if-changed={}/tflite-model/tflite_learn_8.cpp", model_dir);
+
+        // Watch all TFLite files and their corresponding headers/CPP files
+        let tflite_model_dir = Path::new(model_dir).join("tflite-model");
+        if let Ok(entries) = std::fs::read_dir(&tflite_model_dir) {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let file_name_os = entry.file_name();
+                    let file_name = file_name_os.to_string_lossy();
+                    if file_name.ends_with(".tflite") && file_name.starts_with("tflite_learn_") {
+                        let base_name = file_name.trim_end_matches(".tflite");
+                        let header_file = format!("{}.h", base_name);
+                        let cpp_file = format!("{}.cpp", base_name);
+
+                        println!("cargo:rerun-if-changed={}/tflite-model/{}", model_dir, header_file);
+                        println!("cargo:rerun-if-changed={}/tflite-model/{}", model_dir, cpp_file);
+                    }
+                }
+            }
+        }
 
         println!("cargo:info=Library linking setup complete");
     } else {

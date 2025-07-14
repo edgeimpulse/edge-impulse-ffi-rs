@@ -169,7 +169,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let label_count = EI_CLASSIFIER_LABEL_COUNT as u16;
 
     println!("Using input dimensions: {}x{}", input_width, input_height);
-    println!("Model: {} (v{})", EI_CLASSIFIER_PROJECT_NAME, EI_CLASSIFIER_PROJECT_DEPLOY_VERSION);
+    println!(
+        "Model: {} (v{})",
+        EI_CLASSIFIER_PROJECT_NAME, EI_CLASSIFIER_PROJECT_DEPLOY_VERSION
+    );
     println!("Resize mode: {}", resize_mode);
 
     // Load and process the image
