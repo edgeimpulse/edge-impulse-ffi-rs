@@ -1309,6 +1309,46 @@ fn main() {
         "-DBUILD_SHARED_LIBS=OFF".to_string(), // Build static library
     ];
 
+    // Set up cross-compilation for aarch64
+    if env::var("TARGET_LINUX_AARCH64").is_ok() {
+        // Check if cross-compilers are available in the environment
+        if let Ok(cc) = env::var("CC") {
+            cmake_args.push(format!("-DCMAKE_C_COMPILER={}", cc));
+            println!("cargo:info=Using cross-compiler CC: {}", cc);
+        } else if let Ok(cc) = env::var("CC_aarch64_unknown_linux_gnu") {
+            cmake_args.push(format!("-DCMAKE_C_COMPILER={}", cc));
+            println!("cargo:info=Using Rust target cross-compiler CC: {}", cc);
+        } else {
+            // Try to find the cross-compiler
+            let cross_cc = "aarch64-linux-gnu-gcc";
+            cmake_args.push(format!("-DCMAKE_C_COMPILER={}", cross_cc));
+            println!("cargo:info=Using default cross-compiler CC: {}", cross_cc);
+        }
+
+        if let Ok(cxx) = env::var("CXX") {
+            cmake_args.push(format!("-DCMAKE_CXX_COMPILER={}", cxx));
+            println!("cargo:info=Using cross-compiler CXX: {}", cxx);
+        } else if let Ok(cxx) = env::var("CXX_aarch64_unknown_linux_gnu") {
+            cmake_args.push(format!("-DCMAKE_CXX_COMPILER={}", cxx));
+            println!("cargo:info=Using Rust target cross-compiler CXX: {}", cxx);
+        } else {
+            // Try to find the cross-compiler
+            let cross_cxx = "aarch64-linux-gnu-g++";
+            cmake_args.push(format!("-DCMAKE_CXX_COMPILER={}", cross_cxx));
+            println!("cargo:info=Using default cross-compiler CXX: {}", cross_cxx);
+        }
+
+                // Set system name for cross-compilation
+        cmake_args.push("-DCMAKE_SYSTEM_NAME=Linux".to_string());
+        cmake_args.push("-DCMAKE_SYSTEM_PROCESSOR=aarch64".to_string());
+
+        // Add position-independent code flags for shared object linking
+        cmake_args.push("-DCMAKE_C_FLAGS=-fPIC".to_string());
+        cmake_args.push("-DCMAKE_CXX_FLAGS=-fPIC".to_string());
+
+        println!("cargo:info=Configured for aarch64 cross-compilation with PIC");
+    }
+
     if use_full_tflite {
         cmake_args.push("-DEI_CLASSIFIER_USE_FULL_TFLITE=1".to_string());
         cmake_args.push(format!("-DTARGET_PLATFORM={}", target_platform));
