@@ -1225,11 +1225,14 @@ fn main() {
                 .expect("Failed to overwrite original header file with fixed path");
         }
 
-        // Always remove the static library to force a rebuild if model or header changes
+        // Only remove the static library if FORCE_REBUILD is set or if it doesn't exist
         let lib_path = build_dir.join("libedge-impulse-sdk.a");
-        if lib_path.exists() {
+        let should_remove = env::var("FORCE_REBUILD").is_ok() || !lib_path.exists();
+        if should_remove && lib_path.exists() {
             std::fs::remove_file(&lib_path).expect("Failed to remove old static library");
             println!("cargo:warning=Removed old static library to force C++ rebuild");
+        } else if lib_path.exists() {
+            println!("cargo:warning=Static library exists and FORCE_REBUILD not set, preserving existing library");
         }
     }
     // --- End TFLite copy logic ---
