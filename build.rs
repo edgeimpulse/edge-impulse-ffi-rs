@@ -68,6 +68,7 @@ fn copy_ffi_glue(model_dir: &str) {
 
 /// Copy model files from a custom directory specified by EI_MODEL environment variable
 fn copy_model_from_custom_path() -> bool {
+    println!("cargo:warning=DEBUG: copy_model_from_custom_path() called");
     if let Ok(model_path) = env::var("EI_MODEL") {
         println!(
             "cargo:info=Found EI_MODEL environment variable: {}",
@@ -103,7 +104,7 @@ fn copy_model_from_custom_path() -> bool {
             let dst_dir = model_dest.join(dir);
 
             println!(
-                "cargo:info=DEBUG: Checking source directory: {} (exists: {})",
+                "cargo:warning=DEBUG: Checking source directory: {} (exists: {})",
                 src_dir.display(),
                 src_dir.exists()
             );
@@ -119,7 +120,7 @@ fn copy_model_from_custom_path() -> bool {
 
                 // Debug: List contents after copy
                 if dir == &"tflite-model" {
-                    println!("cargo:info=DEBUG: Contents of copied tflite-model directory:");
+                    println!("cargo:warning=DEBUG: Contents of copied tflite-model directory:");
                     match std::fs::read_dir(&dst_dir) {
                         Ok(entries) => {
                             for entry in entries {
@@ -128,7 +129,7 @@ fn copy_model_from_custom_path() -> bool {
                                         let file_name = entry.file_name();
                                         let file_name_str = file_name.to_string_lossy();
                                         let file_type = if entry.file_type().unwrap().is_dir() { "DIR" } else { "FILE" };
-                                        println!("cargo:info=DEBUG:   {}: {}", file_type, file_name_str);
+                                        println!("cargo:warning=DEBUG:   {}: {}", file_type, file_name_str);
                                     }
                                     Err(e) => println!("cargo:warning=DEBUG: Failed to read copied directory entry: {}", e),
                                 }
@@ -1107,7 +1108,7 @@ fn main() {
 
         // Debug: Print the tflite-model directory contents
         println!(
-            "cargo:info=DEBUG: Checking tflite-model directory: {}",
+            "cargo:warning=DEBUG: Checking tflite-model directory: {}",
             tflite_model_dir.display()
         );
         if !tflite_model_dir.exists() {
@@ -1118,7 +1119,7 @@ fn main() {
         // List all files in the directory
         match std::fs::read_dir(&tflite_model_dir) {
             Ok(entries) => {
-                println!("cargo:info=DEBUG: Contents of tflite-model directory:");
+                println!("cargo:warning=DEBUG: Contents of tflite-model directory:");
                 for entry in entries {
                     match entry {
                         Ok(entry) => {
@@ -1129,7 +1130,7 @@ fn main() {
                             } else {
                                 "FILE"
                             };
-                            println!("cargo:info=DEBUG:   {}: {}", file_type, file_name_str);
+                            println!("cargo:warning=DEBUG:   {}: {}", file_type, file_name_str);
                         }
                         Err(e) => {
                             println!("cargo:warning=DEBUG: Failed to read directory entry: {}", e)
@@ -1153,7 +1154,7 @@ fn main() {
                 let entry = entry.ok()?;
                 let file_name_os = entry.file_name();
                 let file_name = file_name_os.to_str()?;
-                println!("cargo:info=DEBUG: Checking file: {} (ends_with .tflite: {}, starts_with tflite_learn_: {})",
+                println!("cargo:warning=DEBUG: Checking file: {} (ends_with .tflite: {}, starts_with tflite_learn_: {})",
                     file_name,
                     file_name.ends_with(".tflite"),
                     file_name.starts_with("tflite_learn_"));
