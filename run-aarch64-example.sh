@@ -30,11 +30,13 @@ print_error() {
 
 # Function to show usage
 show_usage() {
-    echo "Usage: $0 [OPTIONS]"
+    echo "Usage: $0 [OPTIONS] --image IMAGE_PATH"
+    echo ""
+    echo "Required:"
+    echo "  --image PATH            Path to image file to test"
     echo ""
     echo "Options:"
     echo "  -h, --help              Show this help message"
-    echo "  -i, --image PATH        Use specific image file (default: creates test image)"
     echo "  -d, --debug             Enable debug output"
     echo "  -c, --clean             Clean build before testing"
     echo "  -e, --env VAR=VALUE     Set environment variable"
@@ -42,10 +44,10 @@ show_usage() {
     echo "  -r, --run-only          Only run existing binary"
     echo ""
     echo "Examples:"
-    echo "  $0                                    # Run with default test image"
-    echo "  $0 -i my_image.jpg -d                 # Run with specific image and debug"
-    echo "  $0 -e EI_MODEL=/path/to/model -c      # Use custom model and clean build"
-    echo "  $0 -b                                  # Only build the example"
+    echo "  $0 --image my_image.jpg                    # Run with specific image"
+    echo "  $0 --image my_image.jpg -d                 # Run with debug output"
+    echo "  $0 --image my_image.jpg -e EI_MODEL=/path/to/model -c  # Use custom model and clean build"
+    echo "  $0 --image my_image.jpg -b                 # Only build the example"
 }
 
 # Parse command line arguments
@@ -62,7 +64,7 @@ while [[ $# -gt 0 ]]; do
             show_usage
             exit 0
             ;;
-        -i|--image)
+        --image)
             IMAGE_PATH="$2"
             shift 2
             ;;
@@ -108,39 +110,33 @@ fi
 
 print_status "=== Testing ffi_image_infer example in aarch64 Docker container ==="
 
-# Create test image if not provided
 if [ -z "$IMAGE_PATH" ]; then
+    print_error "Image path (--image) is required."
+    show_usage
+    exit 1
+fi
+
+if [ ! -f "$IMAGE_PATH" ]; then
+    print_error "Image file not found: $IMAGE_PATH"
+    exit 1
+fi
+
+# If the image is outside the current directory, copy it to the assets folder
+IMAGE_FILENAME=$(basename "$IMAGE_PATH")
+if [[ "$IMAGE_PATH" != "./"* ]] && [[ "$IMAGE_PATH" != "$(pwd)/"* ]]; then
     # Create assets directory if it doesn't exist
     mkdir -p examples/assets
 
-    print_status "Creating test image in examples/assets/..."
-    echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" | base64 -d > examples/assets/test_image.png
-    IMAGE_PATH="examples/assets/test_image.png"
-    DOCKER_IMAGE_PATH="$IMAGE_PATH"
-    print_success "Created test image: $IMAGE_PATH"
+    print_status "Copying image to examples/assets/ for Docker access..."
+    cp "$IMAGE_PATH" "examples/assets/$IMAGE_FILENAME"
+    DOCKER_IMAGE_PATH="examples/assets/$IMAGE_FILENAME"
+    print_success "Image copied to: $DOCKER_IMAGE_PATH"
+    print_warning "Tip: You can place test images in examples/assets/ to avoid copying each time"
 else
-    if [ ! -f "$IMAGE_PATH" ]; then
-        print_error "Image file not found: $IMAGE_PATH"
-        exit 1
-    fi
-
-    # If the image is outside the current directory, copy it to the assets folder
-    IMAGE_FILENAME=$(basename "$IMAGE_PATH")
-    if [[ "$IMAGE_PATH" != "./"* ]] && [[ "$IMAGE_PATH" != "$(pwd)/"* ]]; then
-        # Create assets directory if it doesn't exist
-        mkdir -p examples/assets
-
-        print_status "Copying image to examples/assets/ for Docker access..."
-        cp "$IMAGE_PATH" "examples/assets/$IMAGE_FILENAME"
-        DOCKER_IMAGE_PATH="examples/assets/$IMAGE_FILENAME"
-        print_success "Image copied to: $DOCKER_IMAGE_PATH"
-        print_warning "Tip: You can place test images in examples/assets/ to avoid copying each time"
-    else
-        DOCKER_IMAGE_PATH="$IMAGE_PATH"
-    fi
-
-    print_success "Using image: $DOCKER_IMAGE_PATH"
+    DOCKER_IMAGE_PATH="$IMAGE_PATH"
 fi
+
+print_success "Using image: $DOCKER_IMAGE_PATH"
 
 # Build environment variables string
 ENV_STRING=""

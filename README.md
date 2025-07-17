@@ -140,64 +140,18 @@ TARGET_JETSON_ORIN=1 USE_FULL_TFLITE=1 cargo build
 
 ## Cross-Compilation
 
-This project supports cross-compilation to aarch64-unknown-linux-gnu using both local tools and Docker.
+This project supports cross-compilation to aarch64-unknown-linux-gnu using Docker.
 
 ### Prerequisites
-
-#### Local Cross-Compilation
-To build locally, you need the aarch64 cross-compilation tools:
-
-**Ubuntu/Debian:**
-```sh
-sudo apt-get install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-```
-
-**macOS:**
-```sh
-brew install aarch64-linux-gnu-binutils
-```
 
 #### Docker Cross-Compilation
 For Docker-based cross-compilation, you only need Docker and Docker Compose installed.
 
 ### Building for aarch64
 
-#### Option 1: Using Make (Recommended)
-```sh
-# Build locally
-make build-aarch64 EI_MODEL=~/Downloads/model-person-detection
-
-# Build with Docker
-make build-aarch64-docker EI_MODEL=~/Downloads/model-person-detection
-```
-
-#### Option 2: Using the Build Script Directly
-```sh
-# Build locally
-./build-aarch64.sh
-
-# Build with specific model
-EI_MODEL=~/Downloads/model-person-detection ./build-aarch64.sh
-```
-
-#### Option 3: Using Docker Compose Directly
 ```sh
 # Build with Docker Compose
 EI_MODEL=~/Downloads/model-person-detection docker-compose up --build aarch64-build
-```
-
-#### Option 4: Manual Cargo Build
-```sh
-# Set environment variables
-export TARGET_LINUX_AARCH64=1
-export USE_FULL_TFLITE=1
-export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
-export CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++
-export EI_MODEL=~/Downloads/model-person-detection
-
-# Add target and build
-rustup target add aarch64-unknown-linux-gnu
-cargo build --target aarch64-unknown-linux-gnu --release
 ```
 
 ### Output Files
@@ -228,23 +182,23 @@ ssh user@aarch64-host "cd /tmp && ./ffi_image_infer --image test.jpg"
 
 **Common Issues:**
 
-1. **Missing cross-compiler:**
+1. **Docker not running:**
    ```
-   Error: aarch64-linux-gnu-gcc not found
+   Error: Cannot connect to the Docker daemon
    ```
-   Solution: Install the cross-compilation tools (see Prerequisites above)
+   Solution: Start Docker Desktop or Docker daemon
 
-2. **CMake configuration fails:**
+2. **Permission denied:**
    ```
-   CMake configuration failed
+   permission denied: unknown
    ```
-   Solution: Ensure you have cmake installed and the cross-compilers are in your PATH
+   Solution: Ensure Docker has access to the model directory and current directory
 
-3. **Linking errors:**
+3. **Volume mount issues:**
    ```
-   cannot find -lstdc++
+   cannot find model files
    ```
-   Solution: Install the ARM64 standard library: `sudo apt-get install libstdc++-11-dev:arm64`
+   Solution: Check that the EI_MODEL path is accessible from within the Docker container
 
 4. **Model not found:**
    ```
@@ -252,19 +206,11 @@ ssh user@aarch64-host "cd /tmp && ./ffi_image_infer --image test.jpg"
    ```
    Solution: Ensure the EI_MODEL environment variable points to a valid model directory
 
-**Docker-specific Issues:**
-
-1. **Permission denied:**
+5. **Build timeout:**
    ```
-   permission denied: unknown
+   Build process taking too long
    ```
-   Solution: Ensure Docker has access to the model directory and current directory
-
-2. **Volume mount issues:**
-   ```
-   cannot find model files
-   ```
-   Solution: Check that the EI_MODEL path is accessible from within the Docker container
+   Solution: The first build may take several minutes as it downloads and builds dependencies
 
 ### Platform Support
 
@@ -360,37 +306,30 @@ For testing the aarch64 cross-compiled version in Docker, several scripts are pr
 
 #### Quick Test
 ```sh
-# Run with default test image
-./test-aarch64-example.sh
+# Run with specific image
+./run-aarch64-example.sh --image my_image.jpg
 
 # Run with specific image and debug output
-./test-aarch64-example.sh -i my_image.jpg -d
+./run-aarch64-example.sh --image my_image.jpg -d
 
 # Run with custom model path
-./test-aarch64-example.sh -e EI_MODEL=/path/to/model -c
+./run-aarch64-example.sh --image my_image.jpg -e EI_MODEL=/path/to/model -c
 ```
 
 **Test Images**: You can place test images in `examples/assets/` to avoid copying them each time. This folder is gitignored, so your test images won't be committed to the repository.
 
-#### Interactive Testing
-```sh
-# Open interactive shell in Docker container
-./docker-shell.sh
 
-# With custom environment variables
-./docker-shell.sh EI_MODEL=/path/to/model USE_FULL_TFLITE=1
-```
 
 #### Manual Testing
 ```sh
 # Build only
-./test-aarch64-example.sh -b
+./run-aarch64-example.sh --image my_image.jpg -b
 
 # Run only (if already built)
-./test-aarch64-example.sh -r
+./run-aarch64-example.sh --image my_image.jpg -r
 
 # Clean build
-./test-aarch64-example.sh -c
+./run-aarch64-example.sh --image my_image.jpg -c
 ```
 
 #### Example Commands in Docker Shell
