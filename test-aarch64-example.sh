@@ -110,16 +110,36 @@ print_status "=== Testing ffi_image_infer example in aarch64 Docker container ==
 
 # Create test image if not provided
 if [ -z "$IMAGE_PATH" ]; then
-    print_status "Creating test image..."
-    echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" | base64 -d > test_image.png
-    IMAGE_PATH="test_image.png"
+    # Create assets directory if it doesn't exist
+    mkdir -p examples/assets
+
+    print_status "Creating test image in examples/assets/..."
+    echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" | base64 -d > examples/assets/test_image.png
+    IMAGE_PATH="examples/assets/test_image.png"
+    DOCKER_IMAGE_PATH="$IMAGE_PATH"
     print_success "Created test image: $IMAGE_PATH"
 else
     if [ ! -f "$IMAGE_PATH" ]; then
         print_error "Image file not found: $IMAGE_PATH"
         exit 1
     fi
-    print_success "Using image: $IMAGE_PATH"
+
+    # If the image is outside the current directory, copy it to the assets folder
+    IMAGE_FILENAME=$(basename "$IMAGE_PATH")
+    if [[ "$IMAGE_PATH" != "./"* ]] && [[ "$IMAGE_PATH" != "$(pwd)/"* ]]; then
+        # Create assets directory if it doesn't exist
+        mkdir -p examples/assets
+
+        print_status "Copying image to examples/assets/ for Docker access..."
+        cp "$IMAGE_PATH" "examples/assets/$IMAGE_FILENAME"
+        DOCKER_IMAGE_PATH="examples/assets/$IMAGE_FILENAME"
+        print_success "Image copied to: $DOCKER_IMAGE_PATH"
+        print_warning "Tip: You can place test images in examples/assets/ to avoid copying each time"
+    else
+        DOCKER_IMAGE_PATH="$IMAGE_PATH"
+    fi
+
+    print_success "Using image: $DOCKER_IMAGE_PATH"
 fi
 
 # Build environment variables string
@@ -162,7 +182,7 @@ fi
 if [ "$BUILD_ONLY" = false ]; then
     print_status "Running ffi_image_infer example..."
     $DOCKER_CMD bash -c "
-        echo 'Running example with image: $IMAGE_PATH'
+        echo 'Running example with image: $DOCKER_IMAGE_PATH'
         echo 'Debug flag: $DEBUG_FLAG'
 
         # Check if binary exists
@@ -172,7 +192,7 @@ if [ "$BUILD_ONLY" = false ]; then
         fi
 
         # Run the example
-        ./target/aarch64-unknown-linux-gnu/release/examples/ffi_image_infer --image $IMAGE_PATH $DEBUG_FLAG
+        ./target/aarch64-unknown-linux-gnu/release/examples/ffi_image_infer --image $DOCKER_IMAGE_PATH $DEBUG_FLAG
 
         echo 'Example execution completed!'
     "

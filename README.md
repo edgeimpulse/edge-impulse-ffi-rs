@@ -370,6 +370,8 @@ For testing the aarch64 cross-compiled version in Docker, several scripts are pr
 ./test-aarch64-example.sh -e EI_MODEL=/path/to/model -c
 ```
 
+**Test Images**: You can place test images in `examples/assets/` to avoid copying them each time. This folder is gitignored, so your test images won't be committed to the repository.
+
 #### Interactive Testing
 ```sh
 # Open interactive shell in Docker container

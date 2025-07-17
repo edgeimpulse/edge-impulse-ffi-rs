@@ -56,3 +56,6 @@ Makefile
 !tflite/**/*.so
 !tflite/**/*.dylib
 !tflite/**/*.dll
+
+# Test assets (images, etc.)
+examples/assets/
