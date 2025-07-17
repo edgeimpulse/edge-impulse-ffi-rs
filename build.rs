@@ -607,20 +607,19 @@ fn fix_header_file_path(build_dir: &Path) {
         if header_file.exists() && tflite_file.exists() {
             let content =
                 std::fs::read_to_string(&header_file).expect("Failed to read header file");
-            let abs_path = tflite_file
-                .canonicalize()
-                .expect("Failed to canonicalize tflite file path");
-            let abs_path_str = abs_path.to_str().expect("Non-UTF8 path");
 
             // Create the INCBIN macro name from the base name
             let incbin_name = format!("incbin_{}", base_name);
 
-            // Patch any INCBIN macro to use the absolute path
+            // Use relative path instead of absolute path to avoid Docker container path issues
+            let relative_path = format!("tflite-model/{}", tflite_filename);
+
+            // Patch any INCBIN macro to use the relative path
             let old_pattern = format!(
                 "INCBIN({}, \"tflite-model/{}\");",
                 incbin_name, tflite_filename
             );
-            let new_pattern = format!("INCBIN({}, \"{}\");", incbin_name, abs_path_str);
+            let new_pattern = format!("INCBIN({}, \"{}\");", incbin_name, relative_path);
 
             let fixed_content = content.replace(&old_pattern, &new_pattern);
             std::fs::write(&header_file, fixed_content).expect("Failed to write fixed header file");
@@ -1225,14 +1224,19 @@ fn main() {
                 .expect("Failed to overwrite original header file with fixed path");
         }
 
-        // Only remove the static library if FORCE_REBUILD is set or if it doesn't exist
+        // Remove the static library and CMake cache if FORCE_REBUILD is set
         let lib_path = build_dir.join("libedge-impulse-sdk.a");
-        let should_remove = env::var("FORCE_REBUILD").is_ok() || !lib_path.exists();
-        if should_remove && lib_path.exists() {
-            std::fs::remove_file(&lib_path).expect("Failed to remove old static library");
-            println!("cargo:warning=Removed old static library to force C++ rebuild");
-        } else if lib_path.exists() {
-            println!("cargo:warning=Static library exists and FORCE_REBUILD not set, preserving existing library");
+        if env::var("FORCE_REBUILD").is_ok() {
+            if lib_path.exists() {
+                std::fs::remove_file(&lib_path).expect("Failed to remove old static library");
+                println!("cargo:warning=Removed old static library to force C++ rebuild");
+            }
+            // Also clean CMake cache to avoid path conflicts
+            let cmake_cache = build_dir.join("CMakeCache.txt");
+            if cmake_cache.exists() {
+                std::fs::remove_file(&cmake_cache).expect("Failed to remove CMake cache");
+                println!("cargo:warning=Removed CMake cache to avoid path conflicts");
+            }
         }
     }
     // --- End TFLite copy logic ---
@@ -1338,13 +1342,13 @@ fn main() {
             println!("cargo:info=Using default cross-compiler CXX: {}", cross_cxx);
         }
 
-                // Set system name for cross-compilation
+        // Set system name for cross-compilation
         cmake_args.push("-DCMAKE_SYSTEM_NAME=Linux".to_string());
         cmake_args.push("-DCMAKE_SYSTEM_PROCESSOR=aarch64".to_string());
 
         // Add position-independent code flags for shared object linking
-        cmake_args.push("-DCMAKE_C_FLAGS=-fPIC".to_string());
-        cmake_args.push("-DCMAKE_CXX_FLAGS=-fPIC".to_string());
+        cmake_args.push("-DCMAKE_C_FLAGS=-fPIC -fno-lto".to_string());
+        cmake_args.push("-DCMAKE_CXX_FLAGS=-fPIC -fno-lto".to_string());
 
         println!("cargo:info=Configured for aarch64 cross-compilation with PIC");
     }
@@ -1469,7 +1473,13 @@ fn main() {
         println!("cargo:rustc-link-lib=static=edge-impulse-sdk");
 
         // Link against C++ standard library
-        println!("cargo:rustc-link-lib=c++");
+        if env::var("TARGET_LINUX_AARCH64").is_ok() {
+            // For aarch64 cross-compilation, use the ARM64 C++ standard library (dynamic)
+            println!("cargo:rustc-link-lib=dylib=stdc++");
+        } else {
+            // Use c++ for macOS and other platforms
+            println!("cargo:rustc-link-lib=c++");
+        }
 
         // Link against prebuilt TensorFlow Lite libraries when using full TensorFlow Lite
         if use_full_tflite {

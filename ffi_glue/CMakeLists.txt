@@ -57,11 +57,11 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG -flto -ffast-math -funroll-loops")
-set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -DNDEBUG -flto -ffast-math -funroll-loops")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG -fno-lto -ffast-math -funroll-loops")
+set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -DNDEBUG -fno-lto -ffast-math -funroll-loops")
 
-# Enable Link Time Optimization for Release builds
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+# Disable Link Time Optimization for Release builds
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE)
 
 # Set include directories for the library
 target_include_directories(edge-impulse-sdk PUBLIC
@@ -90,10 +90,11 @@ set_target_properties(edge-impulse-sdk PROPERTIES
 
 # Add compiler flags for better compatibility
 target_compile_options(edge-impulse-sdk PRIVATE
-    $<$<CONFIG:Release>:-O3 -DNDEBUG -flto -ffast-math -funroll-loops>
+    $<$<CONFIG:Release>:-O3 -DNDEBUG -fno-lto -ffast-math -funroll-loops>
     -fPIC
     -Wall
     -Wextra
+    -fvisibility=hidden
 )
 
 # Link against prebuilt libraries when using full TensorFlow Lite
