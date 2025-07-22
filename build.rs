@@ -996,7 +996,10 @@ impl Thresholds {
         out.push_str("    Threshold {\n");
         out.push_str(&format!("        id: {},\n", block_id));
         out.push_str(&format!("        min_score: {:.1},\n", threshold));
-        out.push_str(&format!("        threshold_type: \"{}\",\n", threshold_type));
+        out.push_str(&format!(
+            "        threshold_type: \"{}\",\n",
+            threshold_type
+        ));
         out.push_str("    },\n");
     }
 
@@ -1017,7 +1020,10 @@ impl Thresholds {
             "pub const BLOCK_{}_THRESHOLD: f32 = {:.1};\n",
             block_id, threshold
         ));
-        out.push_str(&format!("/// Block ID {} for {}\n", block_id, threshold_type));
+        out.push_str(&format!(
+            "/// Block ID {} for {}\n",
+            block_id, threshold_type
+        ));
         out.push_str(&format!(
             "pub const BLOCK_{}_ID: usize = {};\n\n",
             block_id, block_id
@@ -1437,10 +1443,16 @@ fn main() {
                 std::process::exit(1);
             }
 
-            println!("cargo:info=Detected compiled model with {} compiled files", compiled_files.len());
+            println!(
+                "cargo:info=Detected compiled model with {} compiled files",
+                compiled_files.len()
+            );
             tflite_files = compiled_files;
         } else {
-            println!("cargo:info=Detected raw TFLite model with {} TFLite files", tflite_files.len());
+            println!(
+                "cargo:info=Detected raw TFLite model with {} TFLite files",
+                tflite_files.len()
+            );
         }
 
         std::fs::create_dir_all(&tflite_build_dir)
@@ -1481,7 +1493,10 @@ fn main() {
                 }
                 // Create an empty file as placeholder - the actual model is in the compiled .cpp
                 std::fs::write(&tflite_dest, "").expect("Failed to create dummy TFLite file");
-                println!("cargo:info=Created dummy TFLite file for compiled model: {}", tflite_filename);
+                println!(
+                    "cargo:info=Created dummy TFLite file for compiled model: {}",
+                    tflite_filename
+                );
             }
 
             // Copy header file
@@ -1510,9 +1525,16 @@ fn main() {
                     }
                     std::fs::copy(&cpp_source, &cpp_dest)
                         .expect("Failed to copy CPP file to build directory");
-                    println!("cargo:info=Copied compiled CPP file: {} -> {}", cpp_filename, cpp_dest.display());
+                    println!(
+                        "cargo:info=Copied compiled CPP file: {} -> {}",
+                        cpp_filename,
+                        cpp_dest.display()
+                    );
                 } else {
-                    println!("cargo:warning=CPP file {} not found for compiled model", cpp_filename);
+                    println!(
+                        "cargo:warning=CPP file {} not found for compiled model",
+                        cpp_filename
+                    );
                 }
             }
         }

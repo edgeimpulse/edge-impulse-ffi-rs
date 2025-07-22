@@ -254,8 +254,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Print model-specific information based on model type
     if EI_CLASSIFIER_HAS_ANOMALY > 0 {
         println!("  Model type: Anomaly Detection");
-        println!("  Has visual anomaly: {}", EI_CLASSIFIER_HAS_VISUAL_ANOMALY > 0);
-        println!("  Anomaly threshold: {}", EI_CLASSIFIER_THRESHOLD);
+        println!(
+            "  Has visual anomaly: {}",
+            EI_CLASSIFIER_HAS_VISUAL_ANOMALY > 0
+        );
+        // Print anomaly threshold if available in extracted thresholds
+        let thresholds = edge_impulse_ffi_rs::thresholds::get_model_thresholds();
+        for threshold in &thresholds.thresholds {
+            if threshold.threshold_type == "visual_anomaly" {
+                println!("  Anomaly threshold: {}", threshold.min_score);
+            }
+        }
     } else if EI_CLASSIFIER_OBJECT_DETECTION > 0 {
         println!("  Model type: Object Detection");
         // Note: Object detection constants might not be available for all models
