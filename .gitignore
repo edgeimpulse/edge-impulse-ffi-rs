@@ -5,6 +5,7 @@ Cargo.lock
 # Generated files
 /src/model_metadata.rs
 /src/bindings.rs
+/src/thresholds.rs
 
 # Model folder (keep only README.md and .gitignore)
 /model/*

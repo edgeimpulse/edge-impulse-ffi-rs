@@ -5,6 +5,7 @@
 
 pub mod bindings;
 pub mod model_metadata;
+pub mod thresholds;
 
 // Re-export the bindings for convenience
 pub use bindings::*;

@@ -21,6 +21,10 @@ struct Args {
     /// Enable debug output
     #[arg(short, long, default_value_t = false)]
     debug: bool,
+
+    /// Optional threshold for classification or detection
+    #[arg(long)]
+    threshold: Option<f32>,
 }
 
 /// Resize and crop the image according to Edge Impulse model metadata
@@ -210,6 +214,62 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     println!("Resize mode: {}", resize_mode);
 
+    // Print model info using available constants
+    println!("Model Metadata:");
+    println!(
+        "  Project: {} (ID: {})",
+        EI_CLASSIFIER_PROJECT_NAME, EI_CLASSIFIER_PROJECT_ID
+    );
+    println!("  Owner: {}", EI_CLASSIFIER_PROJECT_OWNER);
+    println!("  Deploy version: {}", EI_CLASSIFIER_PROJECT_DEPLOY_VERSION);
+    println!(
+        "  Input: {}x{} frames: {}",
+        EI_CLASSIFIER_INPUT_WIDTH, EI_CLASSIFIER_INPUT_HEIGHT, EI_CLASSIFIER_INPUT_FRAMES
+    );
+    println!("  Label count: {}", EI_CLASSIFIER_LABEL_COUNT);
+    println!("  Sensor: {}", EI_CLASSIFIER_SENSOR);
+    println!("  Inferencing engine: {}", EI_CLASSIFIER_INFERENCING_ENGINE);
+    println!("  Interval (ms): {}", EI_CLASSIFIER_INTERVAL_MS);
+    println!("  Frequency: {}", EI_CLASSIFIER_FREQUENCY);
+    println!("  Slice size: {}", EI_CLASSIFIER_SLICE_SIZE);
+    println!("  Has anomaly: {}", EI_CLASSIFIER_HAS_ANOMALY != 0);
+    println!(
+        "  Has object detection: {}",
+        EI_CLASSIFIER_OBJECT_DETECTION != 0
+    );
+    println!(
+        "  Has object tracking: {}",
+        EI_CLASSIFIER_OBJECT_TRACKING_ENABLED != 0
+    );
+    println!("  Raw sample count: {}", EI_CLASSIFIER_RAW_SAMPLE_COUNT);
+    println!(
+        "  Raw samples per frame: {}",
+        EI_CLASSIFIER_RAW_SAMPLES_PER_FRAME
+    );
+    println!(
+        "  Input features count: {}",
+        EI_CLASSIFIER_NN_INPUT_FRAME_SIZE
+    );
+    println!(
+        "  Object detection threshold: {}",
+        EI_CLASSIFIER_OBJECT_DETECTION_THRESHOLD
+    );
+    println!(
+        "  Object detection count: {}",
+        EI_CLASSIFIER_OBJECT_DETECTION_COUNT
+    );
+
+    // Print extracted threshold information
+    println!("\nExtracted Threshold Information:");
+    let thresholds = edge_impulse_ffi_rs::thresholds::get_model_thresholds();
+    for threshold in &thresholds.thresholds {
+        println!(
+            "  Block {}: {} (threshold: {})",
+            threshold.id, threshold.threshold_type, threshold.min_score
+        );
+    }
+    println!();
+
     // Load and process the image
     let img = image::open(&args.image)?;
     let (width, height) = img.dimensions();
@@ -244,6 +304,47 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Initialize the classifier using raw C function
     unsafe {
         ei_ffi_run_classifier_init();
+    }
+
+    // If threshold is provided, set it (for object detection) - after initialization
+    if let Some(threshold) = args.threshold {
+        println!("Setting object detection threshold to {}", threshold);
+
+        // Get the object detection block ID from extracted thresholds
+        let thresholds = edge_impulse_ffi_rs::thresholds::get_model_thresholds();
+        let object_detection_thresholds = thresholds.object_detection_thresholds();
+
+        if let Some(od_threshold) = object_detection_thresholds.first() {
+            let block_id = od_threshold.id;
+            println!(
+                "Using block ID {} for object detection (extracted from model)",
+                block_id
+            );
+
+            let result_code = unsafe {
+                edge_impulse_ffi_rs::bindings::ei_ffi_set_object_detection_threshold(
+                    block_id as u32,
+                    threshold,
+                )
+            };
+            match result_code {
+                edge_impulse_ffi_rs::bindings::EI_IMPULSE_ERROR::EI_IMPULSE_OK => {
+                    println!("Successfully set threshold to {}", threshold);
+                }
+                error_code => {
+                    eprintln!(
+                        "Failed to set threshold: {:?} (code: {})",
+                        error_code, error_code as i32
+                    );
+                    println!("This might be expected if:");
+                    println!("1. The model doesn't have object detection");
+                    println!("2. The block ID is incorrect for this model");
+                    println!("3. The threshold setting is not supported");
+                }
+            }
+        } else {
+            eprintln!("No object detection thresholds found in model");
+        }
     }
 
     // Create signal from buffer using the FFI function
