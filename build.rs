@@ -978,10 +978,11 @@ impl Thresholds {
         if line.contains("ei_learning_block_config_tflite_graph_t")
             && line.contains("ei_learning_block_config_")
         {
-            // Find the block ID and threshold from the configuration
+            // Find the block ID, threshold, and classification mode from the configuration
             if let Some(block_id) = extract_block_id_from_config(&header, line) {
                 if let Some(threshold) = extract_threshold_from_config(&header, line) {
-                    thresholds.push((block_id, threshold));
+                    let threshold_type = extract_classification_mode(&header, line);
+                    thresholds.push((block_id, threshold, threshold_type));
                 }
             }
         }
@@ -991,11 +992,11 @@ impl Thresholds {
     out.push_str("/// All thresholds in the model\n");
     out.push_str("pub const MODEL_THRESHOLDS: &[Threshold] = &[\n");
 
-    for (block_id, threshold) in &thresholds {
+    for (block_id, threshold, threshold_type) in &thresholds {
         out.push_str("    Threshold {\n");
         out.push_str(&format!("        id: {},\n", block_id));
-        out.push_str(&format!("        min_score: {},\n", threshold));
-        out.push_str("        threshold_type: \"object_detection\",\n");
+        out.push_str(&format!("        min_score: {:.1},\n", threshold));
+        out.push_str(&format!("        threshold_type: \"{}\",\n", threshold_type));
         out.push_str("    },\n");
     }
 
@@ -1010,13 +1011,13 @@ impl Thresholds {
     out.push_str("}\n\n");
 
     // Generate block ID constants for convenience
-    for (block_id, threshold) in &thresholds {
+    for (block_id, threshold, threshold_type) in &thresholds {
         out.push_str(&format!("/// Block ID {} threshold\n", block_id));
         out.push_str(&format!(
-            "pub const BLOCK_{}_THRESHOLD: f32 = {};\n",
+            "pub const BLOCK_{}_THRESHOLD: f32 = {:.1};\n",
             block_id, threshold
         ));
-        out.push_str(&format!("/// Block ID {} for object detection\n", block_id));
+        out.push_str(&format!("/// Block ID {} for {}\n", block_id, threshold_type));
         out.push_str(&format!(
             "pub const BLOCK_{}_ID: usize = {};\n\n",
             block_id, block_id
@@ -1043,6 +1044,57 @@ fn extract_block_id_from_config(_header: &str, config_line: &str) -> Option<usiz
         }
     }
     None
+}
+
+fn extract_classification_mode(header: &str, config_line: &str) -> &'static str {
+    // Find the classification mode in the configuration struct
+    let lines: Vec<&str> = header.lines().collect();
+    let config_name = if let Some(name_part) = config_line.split("ei_learning_block_config_").nth(1)
+    {
+        if let Some(name) = name_part.split_whitespace().next() {
+            format!("ei_learning_block_config_{}", name)
+        } else {
+            return "unknown";
+        }
+    } else {
+        return "unknown";
+    };
+
+    // Find the configuration struct and extract the classification mode
+    let mut in_config = false;
+    let mut brace_count = 0;
+
+    for line in lines {
+        if line.contains(&config_name) && line.contains('{') {
+            in_config = true;
+            brace_count = 1;
+            continue;
+        }
+
+        if in_config {
+            if line.contains('{') {
+                brace_count += 1;
+            }
+            if line.contains('}') {
+                brace_count -= 1;
+                if brace_count == 0 {
+                    break;
+                }
+            }
+
+            if line.contains(".classification_mode =") {
+                if line.contains("EI_CLASSIFIER_CLASSIFICATION_MODE_OBJECT_DETECTION") {
+                    return "object_detection";
+                } else if line.contains("EI_CLASSIFIER_CLASSIFICATION_MODE_VISUAL_ANOMALY") {
+                    return "visual_anomaly";
+                } else if line.contains("EI_CLASSIFIER_CLASSIFICATION_MODE_CLASSIFICATION") {
+                    return "classification";
+                }
+            }
+        }
+    }
+
+    "unknown"
 }
 
 fn extract_threshold_from_config(header: &str, config_line: &str) -> Option<f32> {
@@ -1340,8 +1392,8 @@ fn main() {
             }
         }
 
-        // Find the actual TFLite file (should be named tflite_learn_*.tflite)
-        let tflite_files: Vec<_> = std::fs::read_dir(&tflite_model_dir)
+        // Check if this is a raw TFLite model or a compiled model
+        let mut tflite_files: Vec<_> = std::fs::read_dir(&tflite_model_dir)
             .expect("Failed to read tflite-model directory")
             .filter_map(|entry| {
                 let entry = entry.ok()?;
@@ -1352,31 +1404,62 @@ fn main() {
                     file_name.ends_with(".tflite"),
                     file_name.starts_with("tflite_learn_"));
                 if file_name.ends_with(".tflite") && file_name.starts_with("tflite_learn_") {
-                    Some((entry.path(), file_name.to_string()))
+                    Some((entry.path(), file_name.to_string(), "raw"))
                 } else {
                     None
                 }
             })
             .collect();
 
+        // If no raw TFLite files found, check for compiled model files
         if tflite_files.is_empty() {
-            println!("cargo:error=No tflite_learn_*.tflite file found in model/tflite-model/");
-            std::process::exit(1);
+            let compiled_files: Vec<_> = std::fs::read_dir(&tflite_model_dir)
+                .expect("Failed to read tflite-model directory")
+                .filter_map(|entry| {
+                    let entry = entry.ok()?;
+                    let file_name_os = entry.file_name();
+                    let file_name = file_name_os.to_str()?;
+                    println!("cargo:info=DEBUG: Checking compiled file: {} (ends_with .cpp: {}, starts_with tflite_learn_: {})",
+                        file_name,
+                        file_name.ends_with(".cpp"),
+                        file_name.starts_with("tflite_learn_"));
+                    if file_name.ends_with(".cpp") && file_name.starts_with("tflite_learn_") {
+                        let base_name = file_name.trim_end_matches("_compiled.cpp");
+                        Some((entry.path(), format!("{}.tflite", base_name), "compiled"))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            if compiled_files.is_empty() {
+                println!("cargo:error=No tflite_learn_*.tflite or tflite_learn_*_compiled.cpp files found in model/tflite-model/");
+                std::process::exit(1);
+            }
+
+            println!("cargo:info=Detected compiled model with {} compiled files", compiled_files.len());
+            tflite_files = compiled_files;
+        } else {
+            println!("cargo:info=Detected raw TFLite model with {} TFLite files", tflite_files.len());
         }
 
         std::fs::create_dir_all(&tflite_build_dir)
             .expect("Failed to create tflite-model build dir");
 
-        // Copy all TFLite files and their corresponding headers
-        for (tflite_source, tflite_filename) in &tflite_files {
+        // Copy all model files and their corresponding headers
+        for (source_path, tflite_filename, model_type) in &tflite_files {
             let base_name = tflite_filename.trim_end_matches(".tflite");
-            let header_filename = format!("{}.h", base_name);
+            let header_filename = if *model_type == "compiled" {
+                format!("{}_compiled.h", base_name)
+            } else {
+                format!("{}.h", base_name)
+            };
             let header_source = tflite_model_dir.join(&header_filename);
 
             if !header_source.exists() {
                 println!(
-                    "cargo:error=Header file {} not found for TFLite file {}",
-                    header_filename, tflite_filename
+                    "cargo:error=Header file {} not found for {} file {}",
+                    header_filename, model_type, tflite_filename
                 );
                 std::process::exit(1);
             }
@@ -1384,12 +1467,22 @@ fn main() {
             let tflite_dest = tflite_build_dir.join(tflite_filename);
             let header_dest = tflite_build_dir.join(&header_filename);
 
-            // Copy TFLite file
-            if tflite_dest.exists() {
-                std::fs::remove_file(&tflite_dest).expect("Failed to remove old TFLite file");
+            if *model_type == "raw" {
+                // For raw TFLite models, copy the actual .tflite file
+                if tflite_dest.exists() {
+                    std::fs::remove_file(&tflite_dest).expect("Failed to remove old TFLite file");
+                }
+                std::fs::copy(source_path, &tflite_dest)
+                    .expect("Failed to copy TFLite file to build directory");
+            } else {
+                // For compiled models, create a dummy .tflite file (the actual model is in the .cpp file)
+                if tflite_dest.exists() {
+                    std::fs::remove_file(&tflite_dest).expect("Failed to remove old TFLite file");
+                }
+                // Create an empty file as placeholder - the actual model is in the compiled .cpp
+                std::fs::write(&tflite_dest, "").expect("Failed to create dummy TFLite file");
+                println!("cargo:info=Created dummy TFLite file for compiled model: {}", tflite_filename);
             }
-            std::fs::copy(tflite_source, &tflite_dest)
-                .expect("Failed to copy TFLite file to build directory");
 
             // Copy header file
             if header_dest.exists() {
@@ -1399,19 +1492,42 @@ fn main() {
                 .expect("Failed to copy header file to build directory");
 
             println!(
-                "cargo:info=Copied TFLite files to build directory: {} -> {}",
+                "cargo:info=Copied {} model files to build directory: {} -> {}",
+                model_type,
                 tflite_filename,
                 tflite_dest.display()
             );
+
+            // For compiled models, also copy the .cpp files
+            if *model_type == "compiled" {
+                let cpp_filename = format!("{}_compiled.cpp", base_name);
+                let cpp_source = tflite_model_dir.join(&cpp_filename);
+                let cpp_dest = tflite_build_dir.join(&cpp_filename);
+
+                if cpp_source.exists() {
+                    if cpp_dest.exists() {
+                        std::fs::remove_file(&cpp_dest).expect("Failed to remove old CPP file");
+                    }
+                    std::fs::copy(&cpp_source, &cpp_dest)
+                        .expect("Failed to copy CPP file to build directory");
+                    println!("cargo:info=Copied compiled CPP file: {} -> {}", cpp_filename, cpp_dest.display());
+                } else {
+                    println!("cargo:warning=CPP file {} not found for compiled model", cpp_filename);
+                }
+            }
         }
 
         // Fix the header file paths in all copied header files
         fix_header_file_path(&build_dir);
 
         // Also overwrite the original headers to ensure C++ build uses the correct paths
-        for (_, tflite_filename) in &tflite_files {
+        for (_, tflite_filename, model_type) in &tflite_files {
             let base_name = tflite_filename.trim_end_matches(".tflite");
-            let header_filename = format!("{}.h", base_name);
+            let header_filename = if *model_type == "compiled" {
+                format!("{}_compiled.h", base_name)
+            } else {
+                format!("{}.h", base_name)
+            };
             let header_source = tflite_model_dir.join(&header_filename);
             let header_dest = tflite_build_dir.join(&header_filename);
             std::fs::copy(&header_dest, &header_source)

@@ -250,14 +250,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         "  Input features count: {}",
         EI_CLASSIFIER_NN_INPUT_FRAME_SIZE
     );
-    println!(
-        "  Object detection threshold: {}",
-        EI_CLASSIFIER_OBJECT_DETECTION_THRESHOLD
-    );
-    println!(
-        "  Object detection count: {}",
-        EI_CLASSIFIER_OBJECT_DETECTION_COUNT
-    );
+
+    // Print model-specific information based on model type
+    if EI_CLASSIFIER_HAS_ANOMALY > 0 {
+        println!("  Model type: Anomaly Detection");
+        println!("  Has visual anomaly: {}", EI_CLASSIFIER_HAS_VISUAL_ANOMALY > 0);
+        println!("  Anomaly threshold: {}", EI_CLASSIFIER_THRESHOLD);
+    } else if EI_CLASSIFIER_OBJECT_DETECTION > 0 {
+        println!("  Model type: Object Detection");
+        // Note: Object detection constants might not be available for all models
+        println!("  Object detection enabled: true");
+    } else {
+        println!("  Model type: Classification");
+        println!("  Label count: {}", EI_CLASSIFIER_LABEL_COUNT);
+    }
 
     // Print extracted threshold information
     println!("\nExtracted Threshold Information:");
