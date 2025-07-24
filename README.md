@@ -6,7 +6,7 @@ This project lets you run Edge Impulse machine learning models from Rust using a
 - **Model-agnostic:** Easily swap in any Edge Impulse exported C++ model by replacing the contents of the `model/` folder.
 - **Automatic FFI glue:** C/C++ glue code in `ffi_glue/` is automatically copied and built alongside your model code.
 - **Rust bindings:** Rust code calls into the C++ SDK using generated bindings, with ergonomic Rust APIs for model metadata, inference, and result parsing.
-- **Examples:** See `examples/ffi_image_infer.rs` for a complete image classification and object detection example.
+- **Examples:** See `examples/ffi_image_infer.rs` for a complete image classification and object detection example, and `examples/ffi_audio_infer.rs` for audio classification.
 
 ## Quick Start
 
@@ -293,6 +293,12 @@ cargo run --example ffi_image_infer -- --image <path_to_image>
 # Build and run with platform-specific flags (Apple Silicon example)
 TARGET_MAC_ARM64=1 USE_FULL_TFLITE=1 cargo build
 cargo run --example ffi_image_infer -- --image <path_to_image>
+
+# Audio classification example
+cargo run --example ffi_audio_infer -- --audio <path_to_audio.wav>
+
+# Audio classification with debug output
+cargo run --example ffi_audio_infer -- --audio <path_to_audio.wav> --debug
 ```
 
 **Note**: Once built, you can run the binary directly without the environment variable:
@@ -431,6 +437,8 @@ This ensures the Rust code always has up-to-date bindings and metadata for the c
 ## Example: Image Inference
 
 See `examples/ffi_image_infer.rs` for a complete example of loading an image, preprocessing, running inference, and printing results for both classification and object detection models.
+
+For audio classification, see `examples/ffi_audio_infer.rs` for detailed instructions on processing WAV files and running audio inference.
 
 ## Troubleshooting Automated Downloads
 
