@@ -1258,6 +1258,23 @@ fn main() {
             .clang_arg("-funroll-loops")
             // Force inclusion of visual anomaly detection fields for consistent bindings
             .clang_arg("-DEI_CLASSIFIER_HAS_VISUAL_ANOMALY=1")
+            // Work around libc++ tuple template internals causing invalid generics like `_Pred`
+            // We don't need tuple internals across FFI, so make all tuple types opaque
+            .opaque_type("tuple")
+            .opaque_type("tuple__.*")
+            .blocklist_type("tuple__.*")
+            .blocklist_type("tuple__EnableUTypesCtor")
+            .blocklist_type("tuple__IsThisTuple")
+            .blocklist_type("tuple__EnableCtorFromUTypesTuple")
+            .blocklist_type("tuple__CtorPredicateFromPair")
+            .blocklist_type("tuple__EnableCtorFromPair")
+            .blocklist_type("tuple__NothrowConstructibleFromPair")
+            .blocklist_type("tuple__BothImplicitlyConvertible")
+            // Block the problematic type aliases that reference undefined types
+            .blocklist_type("_And")
+            .blocklist_type("_Pred")
+            .blocklist_type("conditional_type")
+            .blocklist_type("__conditional_t")
             .rustified_enum(".*")
             .default_enum_style(bindgen::EnumVariation::Rust {
                 non_exhaustive: false,
@@ -1310,7 +1327,7 @@ fn main() {
         let bindings_content =
             std::fs::read_to_string(&out_bindings).expect("Failed to read generated bindings");
         let modified_content = format!(
-            "#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]\n{}",
+            "#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]\n// Type aliases to fix missing template parameters\npub type _Pred = u8;\n{}",
             bindings_content
         );
         std::fs::write(&out_bindings, modified_content).expect("Failed to write modified bindings");
