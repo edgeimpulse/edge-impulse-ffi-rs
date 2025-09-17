@@ -1244,6 +1244,9 @@ fn main() {
     if has_valid_model {
         println!("cargo:info=Valid Edge Impulse model found, generating real bindings...");
 
+        // Get target architecture for cross-compilation detection
+        let target = env::var("TARGET").unwrap_or_else(|_| "unknown".to_string());
+
         // Generate real bindings using bindgen
         let wrapper_header = manifest_path.join("model/edge_impulse_wrapper.h");
 
@@ -1262,7 +1265,8 @@ fn main() {
             .clang_arg("-DEI_CLASSIFIER_HAS_VISUAL_ANOMALY=1");
 
         // Add cross-compilation arguments for aarch64
-        if env::var("TARGET_LINUX_AARCH64").is_ok() {
+        if env::var("TARGET_LINUX_AARCH64").is_ok() || target.contains("aarch64-unknown-linux-gnu")
+        {
             println!("cargo:info=Configuring bindgen for aarch64 cross-compilation");
 
             // Use the cross-compiler
@@ -1621,13 +1625,16 @@ fn main() {
     let use_full_tflite = env::var("USE_FULL_TFLITE").is_ok();
 
     // Detect platform target
+    let target = env::var("TARGET").unwrap_or_else(|_| "unknown".to_string());
     let target_platform = if env::var("TARGET_MAC_ARM64").is_ok() {
         "mac-arm64"
     } else if env::var("TARGET_MAC_X86_64").is_ok() {
         "mac-x86_64"
     } else if env::var("TARGET_LINUX_X86").is_ok() {
         "linux-x86"
-    } else if env::var("TARGET_LINUX_AARCH64").is_ok() {
+    } else if env::var("TARGET_LINUX_AARCH64").is_ok()
+        || target.contains("aarch64-unknown-linux-gnu")
+    {
         "linux-aarch64"
     } else if env::var("TARGET_LINUX_ARMV7").is_ok() {
         "linux-armv7"
@@ -1689,7 +1696,7 @@ fn main() {
     ];
 
     // Set up cross-compilation for aarch64
-    if env::var("TARGET_LINUX_AARCH64").is_ok() {
+    if env::var("TARGET_LINUX_AARCH64").is_ok() || target.contains("aarch64-unknown-linux-gnu") {
         // Check if cross-compilers are available in the environment
         if let Ok(cc) = env::var("CC") {
             cmake_args.push(format!("-DCMAKE_C_COMPILER={}", cc));
@@ -1848,7 +1855,8 @@ fn main() {
         println!("cargo:rustc-link-lib=static=edge-impulse-sdk");
 
         // Link against C++ standard library
-        if env::var("TARGET_LINUX_AARCH64").is_ok() {
+        if env::var("TARGET_LINUX_AARCH64").is_ok() || target.contains("aarch64-unknown-linux-gnu")
+        {
             // For aarch64 cross-compilation, use the ARM64 C++ standard library (dynamic)
             println!("cargo:rustc-link-lib=dylib=stdc++");
         } else {
