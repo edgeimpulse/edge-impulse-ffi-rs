@@ -1246,7 +1246,9 @@ fn main() {
 
         // Generate real bindings using bindgen
         let wrapper_header = manifest_path.join("model/edge_impulse_wrapper.h");
-        let bindings = bindgen::Builder::default()
+
+        // Configure bindgen for cross-compilation if targeting aarch64
+        let mut bindgen_builder = bindgen::Builder::default()
             .header(wrapper_header.to_str().unwrap())
             .clang_arg("-xc++")
             .clang_arg("-std=c++17")
@@ -1257,7 +1259,31 @@ fn main() {
             .clang_arg("-ffast-math")
             .clang_arg("-funroll-loops")
             // Force inclusion of visual anomaly detection fields for consistent bindings
-            .clang_arg("-DEI_CLASSIFIER_HAS_VISUAL_ANOMALY=1")
+            .clang_arg("-DEI_CLASSIFIER_HAS_VISUAL_ANOMALY=1");
+
+        // Add cross-compilation arguments for aarch64
+        if env::var("TARGET_LINUX_AARCH64").is_ok() {
+            println!("cargo:info=Configuring bindgen for aarch64 cross-compilation");
+
+            // Use the cross-compiler
+            if let Ok(cc) = env::var("CXX_aarch64_unknown_linux_gnu") {
+                bindgen_builder = bindgen_builder.clang_arg(format!("--target=aarch64-linux-gnu"));
+                // Don't use sysroot to avoid conflicts with system headers
+                println!("cargo:info=Using cross-compiler for bindgen: {}", cc);
+            } else {
+                // Fallback to default cross-compiler
+                bindgen_builder = bindgen_builder.clang_arg(format!("--target=aarch64-linux-gnu"));
+                // Don't use sysroot to avoid conflicts with system headers
+                println!("cargo:info=Using default cross-compiler for bindgen");
+            }
+
+            // Add include paths for the downloaded toolchain C++ headers
+            bindgen_builder = bindgen_builder.clang_arg("-I/toolchains/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/include/c++/10.2.1");
+            bindgen_builder = bindgen_builder.clang_arg("-I/toolchains/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/include/c++/10.2.1/aarch64-none-linux-gnu");
+            // Let the system handle standard library includes by not overriding them
+        }
+
+        let bindings = bindgen_builder
             // Work around libc++ tuple template internals causing invalid generics like `_Pred`
             // We don't need tuple internals across FFI, so make all tuple types opaque
             .opaque_type("tuple")
