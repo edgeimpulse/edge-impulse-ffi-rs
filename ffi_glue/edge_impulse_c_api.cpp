@@ -95,4 +95,61 @@ __attribute__((visibility("default"))) EI_IMPULSE_ERROR ei_ffi_set_object_tracki
     return EI_IMPULSE_INFERENCE_ERROR;
 }
 
+// --- Object tracking helpers ---
+__attribute__((visibility("default"))) int ei_ffi_has_object_tracking_enabled(void) {
+    #if defined(EI_CLASSIFIER_OBJECT_TRACKING_ENABLED) && (EI_CLASSIFIER_OBJECT_TRACKING_ENABLED == 1)
+        return 1;
+    #else
+        return 0;
+    #endif
+}
+
+__attribute__((visibility("default"))) uint32_t ei_ffi_object_tracking_open_traces_count(const ei_impulse_result_t* result) {
+    if (!result) return 0;
+    #if defined(EI_CLASSIFIER_OBJECT_TRACKING_ENABLED) && (EI_CLASSIFIER_OBJECT_TRACKING_ENABLED == 1)
+        return result->postprocessed_output.object_tracking_output.open_traces_count;
+    #else
+        return 0;
+    #endif
+}
+
+__attribute__((visibility("default"))) const void* ei_ffi_object_tracking_open_traces_ptr(const ei_impulse_result_t* result) {
+    if (!result) return nullptr;
+    #if defined(EI_CLASSIFIER_OBJECT_TRACKING_ENABLED) && (EI_CLASSIFIER_OBJECT_TRACKING_ENABLED == 1)
+        return (const void*)result->postprocessed_output.object_tracking_output.open_traces;
+    #else
+        return nullptr;
+    #endif
+}
+
+__attribute__((visibility("default"))) uint8_t ei_ffi_object_tracking_trace_at(
+    const ei_impulse_result_t* result,
+    uint32_t index,
+    int* out_id,
+    uint32_t* out_x,
+    uint32_t* out_y,
+    uint32_t* out_w,
+    uint32_t* out_h,
+    float* out_value)
+{
+    if (!result) return 0;
+    #if defined(EI_CLASSIFIER_OBJECT_TRACKING_ENABLED) && (EI_CLASSIFIER_OBJECT_TRACKING_ENABLED == 1)
+        if (index >= result->postprocessed_output.object_tracking_output.open_traces_count) return 0;
+        const ei_object_tracking_trace_t* traces = result->postprocessed_output.object_tracking_output.open_traces;
+        if (!traces) return 0;
+        const ei_object_tracking_trace_t& t = traces[index];
+        if (out_id) *out_id = t.id;
+        if (out_x) *out_x = t.x;
+        if (out_y) *out_y = t.y;
+        if (out_w) *out_w = t.width;
+        if (out_h) *out_h = t.height;
+        if (out_value) *out_value = t.value;
+        return 1;
+    #else
+        (void)index; (void)out_id; (void)out_x; (void)out_y; (void)out_w; (void)out_h; (void)out_value;
+        return 0;
+    #endif
+}
+// --- end helpers ---
+
 } // extern "C"

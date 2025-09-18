@@ -1358,6 +1358,10 @@ fn main() {
             .allowlist_function("ei_ffi_set_object_detection_threshold")
             .allowlist_function("ei_ffi_set_anomaly_threshold")
             .allowlist_function("ei_ffi_set_object_tracking_threshold")
+            .allowlist_function("ei_ffi_has_object_tracking_enabled")
+            .allowlist_function("ei_ffi_object_tracking_open_traces_count")
+            .allowlist_function("ei_ffi_object_tracking_open_traces_ptr")
+            .allowlist_function("ei_ffi_object_tracking_trace_at")
             .generate()
             .expect("Unable to generate bindings");
 

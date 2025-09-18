@@ -14,6 +14,7 @@
 #include "edge-impulse-sdk/classifier/ei_model_types.h"
 #include "edge-impulse-sdk/dsp/numpy_types.h"
 
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -32,6 +33,20 @@ EI_IMPULSE_ERROR ei_ffi_signal_from_buffer(const float* data, size_t data_size, 
 EI_IMPULSE_ERROR ei_ffi_set_object_detection_threshold(uint32_t block_id, float min_score);
 EI_IMPULSE_ERROR ei_ffi_set_anomaly_threshold(uint32_t block_id, float min_anomaly_score);
 EI_IMPULSE_ERROR ei_ffi_set_object_tracking_threshold(uint32_t block_id, float threshold, uint32_t keep_grace, uint16_t max_observations);
+
+// Object tracking helpers (safe defaults when tracking is disabled)
+int ei_ffi_has_object_tracking_enabled(void);
+uint32_t ei_ffi_object_tracking_open_traces_count(const ei_impulse_result_t* result);
+const void* ei_ffi_object_tracking_open_traces_ptr(const ei_impulse_result_t* result);
+// Get a trace by index, returns 1 on success, 0 otherwise. Outputs filled only on success.
+uint8_t ei_ffi_object_tracking_trace_at(const ei_impulse_result_t* result,
+    uint32_t index,
+    int* out_id,
+    uint32_t* out_x,
+    uint32_t* out_y,
+    uint32_t* out_w,
+    uint32_t* out_h,
+    float* out_value);
 
 #ifdef __cplusplus
 }
