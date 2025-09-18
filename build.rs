@@ -1164,6 +1164,12 @@ fn main() {
     // Force rerun on every build
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/thresholds.rs");
+    // Re-run when key environment toggles change to avoid stale bindings/libs
+    println!("cargo:rerun-if-env-changed=EI_MODEL");
+    println!("cargo:rerun-if-env-changed=EI_ENGINE");
+    println!("cargo:rerun-if-env-changed=USE_FULL_TFLITE");
+    println!("cargo:rerun-if-env-changed=TARGET_LINUX_AARCH64");
+    println!("cargo:rerun-if-env-changed=FORCE_REBUILD");
 
     // Get the current working directory and construct absolute paths
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
@@ -1338,6 +1344,10 @@ fn main() {
             .allowlist_type("ei_impulse_result_bounding_box_t")
             .allowlist_type("ei_impulse_result_timing_t")
             .allowlist_type("ei_impulse_visual_ad_result_t")
+            // Explicitly include post-processing + object tracking types to ensure field visibility
+            .allowlist_type("ei_post_processing_output_t")
+            .allowlist_type("ei_object_tracking_output_t")
+            .allowlist_type("ei_object_tracking_trace_t")
             .allowlist_function("ei_ffi_run_classifier_init")
             .allowlist_function("ei_ffi_run_classifier_deinit")
             .allowlist_function("ei_ffi_init_impulse")
