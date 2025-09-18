@@ -1271,12 +1271,14 @@ fn main() {
 
             // Use the cross-compiler
             if let Ok(cc) = env::var("CXX_aarch64_unknown_linux_gnu") {
-                bindgen_builder = bindgen_builder.clang_arg(format!("--target=aarch64-linux-gnu"));
+                bindgen_builder =
+                    bindgen_builder.clang_arg("--target=aarch64-linux-gnu".to_string());
                 // Don't use sysroot to avoid conflicts with system headers
                 println!("cargo:info=Using cross-compiler for bindgen: {}", cc);
             } else {
                 // Fallback to default cross-compiler
-                bindgen_builder = bindgen_builder.clang_arg(format!("--target=aarch64-linux-gnu"));
+                bindgen_builder =
+                    bindgen_builder.clang_arg("--target=aarch64-linux-gnu".to_string());
                 // Don't use sysroot to avoid conflicts with system headers
                 println!("cargo:info=Using default cross-compiler for bindgen");
             }
@@ -1698,12 +1700,13 @@ fn main() {
     // Set up cross-compilation for aarch64
     if env::var("TARGET_LINUX_AARCH64").is_ok() || target.contains("aarch64-unknown-linux-gnu") {
         // Check if cross-compilers are available in the environment
-        if let Ok(cc) = env::var("CC") {
-            cmake_args.push(format!("-DCMAKE_C_COMPILER={}", cc));
-            println!("cargo:info=Using cross-compiler CC: {}", cc);
-        } else if let Ok(cc) = env::var("CC_aarch64_unknown_linux_gnu") {
+        // Prioritize Rust target-specific environment variables over generic CC/CXX
+        if let Ok(cc) = env::var("CC_aarch64_unknown_linux_gnu") {
             cmake_args.push(format!("-DCMAKE_C_COMPILER={}", cc));
             println!("cargo:info=Using Rust target cross-compiler CC: {}", cc);
+        } else if let Ok(cc) = env::var("CC") {
+            cmake_args.push(format!("-DCMAKE_C_COMPILER={}", cc));
+            println!("cargo:info=Using cross-compiler CC: {}", cc);
         } else {
             // Try to find the cross-compiler
             let cross_cc = "aarch64-linux-gnu-gcc";
@@ -1711,12 +1714,12 @@ fn main() {
             println!("cargo:info=Using default cross-compiler CC: {}", cross_cc);
         }
 
-        if let Ok(cxx) = env::var("CXX") {
-            cmake_args.push(format!("-DCMAKE_CXX_COMPILER={}", cxx));
-            println!("cargo:info=Using cross-compiler CXX: {}", cxx);
-        } else if let Ok(cxx) = env::var("CXX_aarch64_unknown_linux_gnu") {
+        if let Ok(cxx) = env::var("CXX_aarch64_unknown_linux_gnu") {
             cmake_args.push(format!("-DCMAKE_CXX_COMPILER={}", cxx));
             println!("cargo:info=Using Rust target cross-compiler CXX: {}", cxx);
+        } else if let Ok(cxx) = env::var("CXX") {
+            cmake_args.push(format!("-DCMAKE_CXX_COMPILER={}", cxx));
+            println!("cargo:info=Using cross-compiler CXX: {}", cxx);
         } else {
             // Try to find the cross-compiler
             let cross_cxx = "aarch64-linux-gnu-g++";
