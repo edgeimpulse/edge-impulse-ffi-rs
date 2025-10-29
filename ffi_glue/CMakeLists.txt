@@ -13,6 +13,9 @@ if(EI_CLASSIFIER_USE_FULL_TFLITE)
     add_definitions(-DEI_CLASSIFIER_ENABLE_DETECTION_POSTPROCESS_OP=1)
     # Add the same defines as the official Makefile
     add_definitions(-DDISABLEFLOAT16)
+    if(USE_QUALCOMM_QNN)
+        add_definitions(-DEI_CLASSIFIER_USE_QNN_DELEGATES)
+    endif()
 endif()
 
 # Include Edge Impulse SDK utilities
@@ -80,6 +83,12 @@ target_include_directories(edge-impulse-sdk PUBLIC
     # Add tensorflow-lite include directory for full TFLite
     ${CMAKE_CURRENT_SOURCE_DIR}/../tensorflow-lite
 )
+if(USE_QUALCOMM_QNN)
+    if(NOT DEFINED ENV{QNN_SDK_ROOT})
+        message(FATAL_ERROR "Environment variable QNN_SDK_ROOT is not set. Please set it to the root of the Qualcomm QNN SDK.")
+    endif()
+    target_include_directories(edge-impulse-sdk PUBLIC $ENV{QNN_SDK_ROOT}/include)
+endif()
 target_compile_definitions(edge-impulse-sdk PUBLIC INCBIN_SILENCE_BITCODE_WARNING)
 
 # Set C++ standard
@@ -140,4 +149,15 @@ if(EI_CLASSIFIER_USE_FULL_TFLITE)
         ${TFLITE_LIB_DIR}/libpthreadpool.a
         ${TFLITE_LIB_DIR}/libflatbuffers.a
     )
+    if(USE_QUALCOMM_QNN)
+        if(NOT DEFINED ENV{QNN_SDK_ROOT})
+            message(FATAL_ERROR "Environment variable QNN_SDK_ROOT is not set. Please set it to the root of the Qualcomm QNN SDK.")
+        endif()
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+            target_link_directories(edge-impulse-sdk PUBLIC $ENV{QNN_SDK_ROOT}/lib/aarch64-ubuntu-gcc9.4)
+            target_link_libraries(edge-impulse-sdk PRIVATE libQnnTFLiteDelegate)
+        else()
+            message(FATAL_ERROR "Qualcomm QNN delegate is only supported on aarch64 architecture.")
+        endif()
+    endif()
 endif()
