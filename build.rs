@@ -1870,6 +1870,19 @@ fn main() {
         // Link against the Edge Impulse SDK library
         // The library name will depend on what CMake generates, typically something like "edge-impulse-sdk"
         println!("cargo:rustc-link-lib=static=edge-impulse-sdk");
+        if use_qualcomm_qnn {
+            if env::var("TARGET_LINUX_AARCH64").is_err() {
+                println!("cargo:error=Qualcomm QNN delegate is only supported for aarch64 targets");
+                std::process::exit(1);
+            }
+            if let Ok(qnn_sdk_root) = env::var("QNN_SDK_ROOT") {
+                let qnn_lib_dir = Path::new(&qnn_sdk_root).join("lib/aarch64-ubuntu-gcc9.4");
+                if qnn_lib_dir.exists() {
+                    println!("cargo:rustc-link-search=native={}", qnn_lib_dir.display());
+                    println!("cargo:rustc-link-lib=dylib=QnnTFLiteDelegate");
+                }
+            }
+        }
 
         // Link against C++ standard library
         if env::var("TARGET_LINUX_AARCH64").is_ok() || target.contains("aarch64-unknown-linux-gnu")
