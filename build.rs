@@ -1169,6 +1169,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=EI_ENGINE");
     println!("cargo:rerun-if-env-changed=USE_FULL_TFLITE");
     println!("cargo:rerun-if-env-changed=TARGET_LINUX_AARCH64");
+    println!("cargo:rerun-if-env-changed=TARGET_LINUX_X86");
     println!("cargo:rerun-if-env-changed=FORCE_REBUILD");
 
     // Get the current working directory and construct absolute paths
@@ -1885,7 +1886,9 @@ fn main() {
         }
 
         // Link against C++ standard library
-        if env::var("TARGET_LINUX_AARCH64").is_ok() || target.contains("aarch64-unknown-linux-gnu")
+        if env::var("TARGET_LINUX_AARCH64").is_ok()
+            || target.contains("aarch64-unknown-linux-gnu")
+            || target.contains("x86_64-unknown-linux-gnu")
         {
             // For aarch64 cross-compilation, use the ARM64 C++ standard library (dynamic)
             println!("cargo:rustc-link-lib=dylib=stdc++");
