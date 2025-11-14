@@ -276,11 +276,13 @@ fn download_model_from_edge_impulse(project_id: &str, api_key: &str) -> bool {
     );
 
     // Determine engine type from environment variable, default to tflite-eon
-    let engine = env::var("EI_ENGINE").unwrap_or_else(|_| "tflite-eon".to_string());
+    let mut engine = env::var("EI_ENGINE").unwrap_or_else(|_| "tflite-eon".to_string());
     println!("cargo:info=Using engine: {}", engine);
 
-    if engine == "tflite-eon" && env::var("USE_FULL_TFLITE").is_ok() {
-        println!("cargo:error=Cannot use USE_FULL_TFLITE=1 with EI_ENGINE=tflite-eon.");
+    if engine == "tflite-eon".to_string() && env::var("USE_FULL_TFLITE").is_ok() {
+        println!("cargo:info=Cannot use USE_FULL_TFLITE=1 with EI_ENGINE=tflite-eon.");
+        println!("cargo:info=Automatically switching to EI_ENGINE=tflite.");
+        engine = "tflite".to_string();
     }
 
     let build_response: BuildJobResponse = match ureq::post(&build_url)
