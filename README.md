@@ -65,11 +65,16 @@ This means you can:
 - Download from Edge Impulse Studio (requires API credentials)
 
 #### Engine Selection
-By default, the model is built with the `tflite-eon` engine (optimized for microcontrollers). To use the standard `tflite` engine (compatible with full TensorFlow Lite), set the `EI_ENGINE` environment variable:
+By default, the model is built with the `tflite-eon` engine (optimized for microcontrollers). To use the standard `tflite` engine (compatible with full TensorFlow Lite), set the `EI_ENGINE` or `USE_FULL_TFLITE=1` environment variable:
 
 ```sh
-# Use standard TensorFlow Lite (compatible with full TFLite builds)
+# Use TFLM (for microcontrollers)
 EI_ENGINE=tflite cargo build
+
+# Use standard TensorFlow Lite (compatible with full TFLite builds)
+EI_ENGINE=tflite USE_FULL_TFLITE=1 cargo build
+# or simply 
+USE_FULL_TFLITE=1 cargo build
 
 # Use EON-optimized TensorFlow Lite (default, for microcontrollers)
 EI_ENGINE=tflite-eon cargo build
