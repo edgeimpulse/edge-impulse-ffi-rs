@@ -279,6 +279,10 @@ fn download_model_from_edge_impulse(project_id: &str, api_key: &str) -> bool {
     let engine = env::var("EI_ENGINE").unwrap_or_else(|_| "tflite-eon".to_string());
     println!("cargo:info=Using engine: {}", engine);
 
+    if engine == "tflite-eon" && env::var("USE_FULL_TFLITE").is_ok() {
+        println!("cargo:error=Cannot use USE_FULL_TFLITE=1 with EI_ENGINE=tflite-eon.");
+    }
+
     let build_response: BuildJobResponse = match ureq::post(&build_url)
         .set("x-api-key", api_key)
         .set("content-type", "application/json")
