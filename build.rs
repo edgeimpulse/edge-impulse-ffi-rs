@@ -1500,7 +1500,12 @@ fn main() {
                         file_name.ends_with(".cpp"),
                         file_name.starts_with("tflite_learn_"));
                     if file_name.ends_with(".cpp") && file_name.starts_with("tflite_learn_") {
-                        let base_name = file_name.trim_end_matches("_compiled.cpp");
+                        // Extract base name: remove _compiled.cpp if present, otherwise remove .cpp
+                        let base_name = if file_name.ends_with("_compiled.cpp") {
+                            file_name.trim_end_matches("_compiled.cpp")
+                        } else {
+                            file_name.trim_end_matches(".cpp")
+                        };
                         Some((entry.path(), format!("{}.tflite", base_name), "compiled"))
                     } else {
                         None
@@ -1532,7 +1537,19 @@ fn main() {
         for (source_path, tflite_filename, model_type) in &tflite_files {
             let base_name = tflite_filename.trim_end_matches(".tflite");
             let header_filename = if *model_type == "compiled" {
-                format!("{}_compiled.h", base_name)
+                // For compiled models, check the original source filename to determine header naming
+                // Files ending with _compiled.cpp use _compiled.h, plain .cpp files use .h
+                let source_file_name = source_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+                if source_file_name.ends_with("_compiled.cpp") {
+                    // This was a _compiled.cpp file, so the header is _compiled.h
+                    format!("{}_compiled.h", base_name)
+                } else {
+                    // This was a plain .cpp file, so the header is just .h
+                    format!("{}.h", base_name)
+                }
             } else {
                 format!("{}.h", base_name)
             };
@@ -1585,9 +1602,13 @@ fn main() {
 
             // For compiled models, also copy the .cpp files
             if *model_type == "compiled" {
-                let cpp_filename = format!("{}_compiled.cpp", base_name);
-                let cpp_source = tflite_model_dir.join(&cpp_filename);
-                let cpp_dest = tflite_build_dir.join(&cpp_filename);
+                // Use the original source filename for the .cpp file
+                let cpp_filename = source_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+                let cpp_source = source_path.clone();
+                let cpp_dest = tflite_build_dir.join(cpp_filename);
 
                 if cpp_source.exists() {
                     if cpp_dest.exists() {
@@ -1613,10 +1634,19 @@ fn main() {
         fix_header_file_path(&build_dir);
 
         // Also overwrite the original headers to ensure C++ build uses the correct paths
-        for (_, tflite_filename, model_type) in &tflite_files {
+        for (source_path, tflite_filename, model_type) in &tflite_files {
             let base_name = tflite_filename.trim_end_matches(".tflite");
             let header_filename = if *model_type == "compiled" {
-                format!("{}_compiled.h", base_name)
+                // For compiled models, check the original source filename to determine header naming
+                let source_file_name = source_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("");
+                if source_file_name.ends_with("_compiled.cpp") {
+                    format!("{}_compiled.h", base_name)
+                } else {
+                    format!("{}.h", base_name)
+                }
             } else {
                 format!("{}.h", base_name)
             };
@@ -1944,6 +1974,44 @@ fn main() {
             } else {
                 println!("cargo:warning=TensorFlow Lite libraries not found at {}, skipping prebuilt library linking", tflite_lib_dir);
                 println!("cargo:warning=This is expected when building from git. The CMake build will handle TensorFlow Lite linking.");
+            }
+        }
+
+        // Link against Qualcomm QNN libraries when QNN support is enabled
+        if use_qualcomm_qnn {
+            if let Ok(qnn_sdk_root) = env::var("QNN_SDK_ROOT") {
+                let qnn_sdk_path = Path::new(&qnn_sdk_root);
+
+                // Determine QNN library directory based on target architecture
+                let qnn_lib_dir = if env::var("TARGET_LINUX_AARCH64").is_ok()
+                    || target.contains("aarch64-unknown-linux-gnu")
+                {
+                    qnn_sdk_path.join("lib/aarch64-ubuntu-gcc9.4")
+                } else {
+                    // Fallback for other architectures - adjust as needed
+                    qnn_sdk_path.join("lib/x86_64")
+                };
+
+                if qnn_lib_dir.exists() {
+                    println!("cargo:rustc-link-search=native={}", qnn_lib_dir.display());
+                    // Link against QNN TFLite delegate library
+                    // Note: CMake will look for libQnnTFLiteDelegate.a, Rust linker needs just QnnTFLiteDelegate
+                    println!("cargo:rustc-link-lib=static=QnnTFLiteDelegate");
+                    println!(
+                        "cargo:info=Linked against Qualcomm QNN libraries from: {}",
+                        qnn_lib_dir.display()
+                    );
+                } else {
+                    println!(
+                        "cargo:warning=QNN library directory not found at: {}",
+                        qnn_lib_dir.display()
+                    );
+                    println!(
+                        "cargo:warning=CMake build may fail if QNN libraries are not accessible"
+                    );
+                }
+            } else {
+                println!("cargo:warning=USE_QUALCOMM_QNN is enabled but QNN_SDK_ROOT environment variable is not set");
             }
         }
 
