@@ -1977,43 +1977,7 @@ fn main() {
             }
         }
 
-        // Link against Qualcomm QNN libraries when QNN support is enabled
-        if use_qualcomm_qnn {
-            if let Ok(qnn_sdk_root) = env::var("QNN_SDK_ROOT") {
-                let qnn_sdk_path = Path::new(&qnn_sdk_root);
 
-                // Determine QNN library directory based on target architecture
-                let qnn_lib_dir = if env::var("TARGET_LINUX_AARCH64").is_ok()
-                    || target.contains("aarch64-unknown-linux-gnu")
-                {
-                    qnn_sdk_path.join("lib/aarch64-ubuntu-gcc9.4")
-                } else {
-                    // Fallback for other architectures - adjust as needed
-                    qnn_sdk_path.join("lib/x86_64")
-                };
-
-                if qnn_lib_dir.exists() {
-                    println!("cargo:rustc-link-search=native={}", qnn_lib_dir.display());
-                    // Link against QNN TFLite delegate library
-                    // Note: CMake will look for libQnnTFLiteDelegate.a, Rust linker needs just QnnTFLiteDelegate
-                    println!("cargo:rustc-link-lib=static=QnnTFLiteDelegate");
-                    println!(
-                        "cargo:info=Linked against Qualcomm QNN libraries from: {}",
-                        qnn_lib_dir.display()
-                    );
-                } else {
-                    println!(
-                        "cargo:warning=QNN library directory not found at: {}",
-                        qnn_lib_dir.display()
-                    );
-                    println!(
-                        "cargo:warning=CMake build may fail if QNN libraries are not accessible"
-                    );
-                }
-            } else {
-                println!("cargo:warning=USE_QUALCOMM_QNN is enabled but QNN_SDK_ROOT environment variable is not set");
-            }
-        }
 
         // Re-run if any of the source files change
         println!("cargo:rerun-if-changed={}/CMakeLists.txt", model_dir);
