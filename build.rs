@@ -1277,6 +1277,17 @@ fn main() {
             // Force inclusion of visual anomaly detection fields for consistent bindings
             .clang_arg("-DEI_CLASSIFIER_HAS_VISUAL_ANOMALY=1");
 
+        // Add EI_CLASSIFIER_USE_FULL_TFLITE if USE_FULL_TFLITE is set
+        if env::var("USE_FULL_TFLITE").is_ok() {
+            bindgen_builder = bindgen_builder.clang_arg("-DEI_CLASSIFIER_USE_FULL_TFLITE=1");
+            // Add include path for tensorflow-lite headers (point to repo root so "tensorflow-lite/..." includes work)
+            let tflite_dir = manifest_path.join("tensorflow-lite");
+            if tflite_dir.exists() {
+                // Include path should point to the directory containing "tensorflow-lite", not to "tensorflow-lite" itself
+                bindgen_builder = bindgen_builder.clang_arg(format!("-I{}", manifest_path.to_str().unwrap()));
+            }
+        }
+
         // Add cross-compilation arguments for aarch64
         if env::var("TARGET_LINUX_AARCH64").is_ok() || target.contains("aarch64-unknown-linux-gnu")
         {
