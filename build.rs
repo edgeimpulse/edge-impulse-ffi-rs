@@ -832,13 +832,34 @@ fn extract_and_write_model_metadata() {
             emitted.insert(name.clone(), value.to_string());
             continue;
         }
-        // Special case: EI_CLASSIFIER_RESIZE_MODE
+        // Special case: EI_CLASSIFIER_RESIZE_MODE.
+        // The model header defines it as an alias of one of the RESIZE_* constants
+        // (e.g. EI_CLASSIFIER_RESIZE_FIT_LONGEST). bindgen leaves the body as that
+        // symbol name; emit the resolved alias so the real per-model mode reaches
+        // Rust instead of always forcing SQUASH.
         if name == "EI_CLASSIFIER_RESIZE_MODE" {
-            // This should resolve to EI_CLASSIFIER_RESIZE_SQUASH (3)
-            out.push_str(
-                "pub const EI_CLASSIFIER_RESIZE_MODE: usize = EI_CLASSIFIER_RESIZE_SQUASH;\n",
+            let target = val.trim();
+            let known = matches!(
+                target,
+                "EI_CLASSIFIER_RESIZE_NONE"
+                    | "EI_CLASSIFIER_RESIZE_FIT_SHORTEST"
+                    | "EI_CLASSIFIER_RESIZE_FIT_LONGEST"
+                    | "EI_CLASSIFIER_RESIZE_SQUASH"
             );
-            emitted.insert(name.clone(), "EI_CLASSIFIER_RESIZE_SQUASH".to_string());
+            if known {
+                out.push_str(&format!(
+                    "pub const EI_CLASSIFIER_RESIZE_MODE: usize = {target};\n"
+                ));
+                emitted.insert(name.clone(), target.to_string());
+            } else {
+                println!(
+                    "cargo:warning=Unrecognized EI_CLASSIFIER_RESIZE_MODE alias '{target}', defaulting to SQUASH"
+                );
+                out.push_str(
+                    "pub const EI_CLASSIFIER_RESIZE_MODE: usize = EI_CLASSIFIER_RESIZE_SQUASH;\n",
+                );
+                emitted.insert(name.clone(), "EI_CLASSIFIER_RESIZE_SQUASH".to_string());
+            }
             continue;
         }
         // Fallback: emit as a reference (may cause build error, but better than omitting)
