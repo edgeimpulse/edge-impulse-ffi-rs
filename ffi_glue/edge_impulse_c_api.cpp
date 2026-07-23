@@ -3,6 +3,8 @@
 #include "edge-impulse-sdk/classifier/ei_run_classifier.h"
 #include "edge-impulse-sdk/classifier/postprocessing/ei_postprocessing_common.h"
 #include "edge-impulse-sdk/dsp/numpy.hpp"
+#include <vector>
+#include <cstring>
 
 // Forward declaration of the default impulse (C++ linkage)
 extern ei_impulse_handle_t& ei_default_impulse;
@@ -151,5 +153,82 @@ __attribute__((visibility("default"))) uint8_t ei_ffi_object_tracking_trace_at(
     #endif
 }
 // --- end helpers ---
+
+// --- Freeform output support ---
+// For freeform-output impulses (e.g. CRNN/OCR recognizers) the raw model output
+// tensors are not surfaced through ei_impulse_result_t. Instead the application
+// must allocate output buffers, register them with ei_set_freeform_output before
+// inference, and read the raw floats back afterwards. These helpers expose that
+// pattern across the FFI boundary. The real body only exists for freeform models;
+// on regular models the fields are still queryable (size 0) and the run function
+// returns EI_IMPULSE_INFERENCE_ERROR.
+
+// Number of freeform output tensors this model exposes (0 if not a freeform model).
+__attribute__((visibility("default"))) uint8_t ei_ffi_freeform_outputs_count(void) {
+    const ei_impulse_t* imp = ei_default_impulse.impulse;
+    return imp ? imp->freeform_outputs_size : 0;
+}
+
+// Element count (rows*cols) of freeform output tensor `ix`
+// (0 if out of range or not a freeform model).
+__attribute__((visibility("default"))) uint32_t ei_ffi_freeform_output_size(uint8_t ix) {
+    const ei_impulse_t* imp = ei_default_impulse.impulse;
+    if (!imp || imp->freeform_outputs == nullptr || ix >= imp->freeform_outputs_size) {
+        return 0;
+    }
+    return imp->freeform_outputs[ix];
+}
+
+// Run the classifier and copy the raw freeform output tensors into caller-owned
+// buffers. `out_buffers[ix]` must have capacity >= ei_ffi_freeform_output_size(ix)
+// floats, and `n_outputs` must equal ei_ffi_freeform_outputs_count(). Returns
+// EI_IMPULSE_INFERENCE_ERROR on models that are not freeform-output.
+__attribute__((visibility("default"))) EI_IMPULSE_ERROR ei_ffi_run_classifier_freeform(
+    signal_t* signal, ei_impulse_result_t* result, int debug,
+    float** out_buffers, uint32_t n_outputs)
+{
+#if EI_CLASSIFIER_FREEFORM_OUTPUT == 1
+    ei_impulse_handle_t& handle = ei_default_impulse;
+    const ei_impulse_t* imp = handle.impulse;
+    if (n_outputs != imp->freeform_outputs_size) {
+        return EI_IMPULSE_FREEFORM_OUTPUT_SIZE_MISMATCH;
+    }
+
+    // One matrix per output tensor, sized per the impulse. reserve() prevents
+    // reallocation so no matrix_t is copied/moved (which would double-free the
+    // owned buffer). Matches the SDK's documented freeform usage pattern.
+    std::vector<matrix_t> freeform_outputs;
+    freeform_outputs.reserve(imp->freeform_outputs_size);
+    for (size_t ix = 0; ix < imp->freeform_outputs_size; ++ix) {
+        freeform_outputs.emplace_back(imp->freeform_outputs[ix], 1);
+    }
+
+    EI_IMPULSE_ERROR set_res =
+        ei_set_freeform_output(&handle, freeform_outputs.data(), freeform_outputs.size());
+    if (set_res != EI_IMPULSE_OK) {
+        handle.freeform_outputs = nullptr;
+        return set_res;
+    }
+
+    EI_IMPULSE_ERROR run_res = ::run_classifier(signal, result, debug);
+    if (run_res == EI_IMPULSE_OK && out_buffers != nullptr) {
+        for (size_t ix = 0; ix < freeform_outputs.size(); ++ix) {
+            const matrix_t& m = freeform_outputs[ix];
+            if (out_buffers[ix] != nullptr && m.buffer != nullptr) {
+                memcpy(out_buffers[ix], m.buffer,
+                       (size_t)m.rows * (size_t)m.cols * sizeof(float));
+            }
+        }
+    }
+
+    // Drop the handle's reference before the local matrices free their buffers.
+    handle.freeform_outputs = nullptr;
+    return run_res;
+#else
+    (void)signal; (void)result; (void)debug; (void)out_buffers; (void)n_outputs;
+    return EI_IMPULSE_INFERENCE_ERROR;
+#endif
+}
+// --- end freeform output support ---
 
 } // extern "C"

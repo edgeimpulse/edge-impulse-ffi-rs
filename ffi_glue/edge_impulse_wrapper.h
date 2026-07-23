@@ -48,6 +48,14 @@ uint8_t ei_ffi_object_tracking_trace_at(const ei_impulse_result_t* result,
     uint32_t* out_h,
     float* out_value);
 
+// Freeform output helpers (for CRNN/OCR-style models whose raw output tensors are
+// not surfaced through ei_impulse_result_t). See edge_impulse_c_api.cpp.
+uint8_t ei_ffi_freeform_outputs_count(void);
+uint32_t ei_ffi_freeform_output_size(uint8_t ix);
+EI_IMPULSE_ERROR ei_ffi_run_classifier_freeform(
+    signal_t* signal, ei_impulse_result_t* result, int debug,
+    float** out_buffers, uint32_t n_outputs);
+
 #ifdef __cplusplus
 }
 #endif

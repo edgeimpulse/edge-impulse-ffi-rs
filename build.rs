@@ -1380,6 +1380,9 @@ fn main() {
             .allowlist_function("ei_ffi_object_tracking_open_traces_count")
             .allowlist_function("ei_ffi_object_tracking_open_traces_ptr")
             .allowlist_function("ei_ffi_object_tracking_trace_at")
+            .allowlist_function("ei_ffi_freeform_outputs_count")
+            .allowlist_function("ei_ffi_freeform_output_size")
+            .allowlist_function("ei_ffi_run_classifier_freeform")
             .generate()
             .expect("Unable to generate bindings");
 
