@@ -867,6 +867,9 @@ fn extract_and_write_model_metadata() {
     }
 
     // Add missing constants that are referenced but not defined in the header
+    if !emitted.contains_key("EI_CLASSIFIER_RESIZE_NONE") {
+        out.push_str("pub const EI_CLASSIFIER_RESIZE_NONE: usize = 0;\n");
+    }
     if !emitted.contains_key("EI_CLASSIFIER_RESIZE_SQUASH") {
         out.push_str("pub const EI_CLASSIFIER_RESIZE_SQUASH: usize = 3;\n");
     }
